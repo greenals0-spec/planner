@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MyPlanner – 목표와 하루를 설계하다</title>
+  <meta name="description" content="로그인 후 장기·단기 목표 리마인드와 시간 단위 투두리스트를 한 곳에서 관리하는 스마트 플래너" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Noto+Sans+KR:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ===================== LOGIN PAGE ===================== -->
+<div id="loginPage">
+  <div class="login-bg-orbs">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+  </div>
+
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="login-logo-icon">🎯</div>
+      <span class="login-logo-text">MyPlanner</span>
+    </div>
+    <p class="login-subtitle">목표를 세우고, 하루를 설계하고,<br/>꿈을 이루는 스마트 플래너</p>
+
+    <div class="auth-tabs">
+      <button class="auth-tab active" id="loginTab" onclick="switchAuthTab('login')">로그인</button>
+      <button class="auth-tab" id="registerTab" onclick="switchAuthTab('register')">회원가입</button>
+    </div>
+
+    <!-- Login Form -->
+    <div id="loginForm">
+      <div class="form-group">
+        <label for="loginId">아이디</label>
+        <div class="input-icon-wrap">
+          <span class="input-icon">👤</span>
+          <input type="text" id="loginId" placeholder="아이디를 입력하세요" autocomplete="username" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="loginPw">비밀번호</label>
+        <div class="input-icon-wrap">
+          <span class="input-icon">🔒</span>
+          <input type="password" id="loginPw" placeholder="비밀번호를 입력하세요" autocomplete="current-password" />
+        </div>
+      </div>
+      <div class="login-error" id="loginError"></div>
+      <button class="btn-login" id="loginBtn">로그인</button>
+    </div>
+
+    <!-- Register Form -->
+    <div id="registerForm" style="display:none">
+      <div class="form-group">
+        <label for="regName">이름</label>
+        <div class="input-icon-wrap">
+          <span class="input-icon">😊</span>
+          <input type="text" id="regName" placeholder="이름을 입력하세요" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="regId">아이디</label>
+        <div class="input-icon-wrap">
+          <span class="input-icon">👤</span>
+          <input type="text" id="regId" placeholder="아이디를 입력하세요 (영문/숫자)" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="regPw">비밀번호</label>
+        <div class="input-icon-wrap">
+          <span class="input-icon">🔒</span>
+          <input type="password" id="regPw" placeholder="비밀번호 (4자 이상)" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="regPwConfirm">비밀번호 확인</label>
+        <div class="input-icon-wrap">
+          <span class="input-icon">✅</span>
+          <input type="password" id="regPwConfirm" placeholder="비밀번호를 다시 입력하세요" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="regInviteCode">초대 코드 *</label>
+        <div class="input-icon-wrap">
+          <span class="input-icon">🎫</span>
+          <input type="text" id="regInviteCode" placeholder="초대 코드를 입력하세요" autocomplete="off" style="text-transform:uppercase" />
+        </div>
+      </div>
+      <div class="login-error" id="registerError"></div>
+      <button class="btn-login" id="registerBtn">회원가입</button>
+    </div>
+
+
+  </div>
+</div>
+
+<!-- ===================== APP PAGE ===================== -->
+<div id="appPage">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">
+        <div class="logo-icon">🎯</div>
+        <span class="logo-text">MyPlanner</span>
+      </div>
+      <button class="sidebar-toggle" id="sidebarToggle" aria-label="사이드바 닫기">‹</button>
+    </div>
+
+    <nav class="sidebar-nav">
+      <button class="nav-item active" data-view="today" id="nav-today">
+        <span class="nav-icon">📅</span>
+        <span class="nav-label">오늘</span>
+      </button>
+      <button class="nav-item" data-view="goals" id="nav-goals">
+        <span class="nav-icon">🏆</span>
+        <span class="nav-label">목표 관리</span>
+      </button>
+      <button class="nav-item" data-view="calendar" id="nav-calendar">
+        <span class="nav-icon">🗓️</span>
+        <span class="nav-label">캘린더</span>
+      </button>
+      <button class="nav-item" data-view="alarm" id="nav-alarm">
+        <span class="nav-icon">⏰</span>
+        <span class="nav-label">알람 설정</span>
+      </button>
+      <button class="nav-item" data-view="routine" id="nav-routine">
+        <span class="nav-icon">🔄</span>
+        <span class="nav-label">루틴</span>
+      </button>
+      <button class="nav-item" data-view="admin" id="nav-admin" style="display:none">
+        <span class="nav-icon">🔧</span>
+        <span class="nav-label">관리자 패널</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-bottom">
+      <div class="date-display" id="sidebarDate"></div>
+      <div class="time-display" id="sidebarTime"></div>
+    </div>
+
+    <div class="sidebar-user">
+      <div class="user-avatar" id="userAvatar">U</div>
+      <div class="user-info">
+        <div class="user-name" id="userNameDisp">사용자</div>
+        <div class="user-sub">MyPlanner 회원</div>
+      </div>
+      <button class="logout-btn" id="logoutBtn" title="로그아웃">↩</button>
+    </div>
+  </aside>
+
+  <!-- Topbar -->
+  <header class="topbar" id="topbar">
+    <button class="menu-btn" id="menuBtn" aria-label="메뉴">☰</button>
+    <div class="topbar-center">
+      <h1 class="page-title" id="pageTitle">오늘의 플랜</h1>
+    </div>
+    <div class="topbar-right">
+      <div class="streak-badge" id="streakBadge" title="연속 달성일">
+        <span>🔥</span>
+        <span id="streakCount">0</span>일
+      </div>
+      <button class="notif-btn" id="notifBtn" title="알림 설정">🔔</button>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="main" id="main">
+
+    <!-- ===== TODAY VIEW ===== -->
+    <section class="view active" id="view-today">
+      <div class="goal-summary-bar" id="goalSummaryBar"></div>
+
+      <div class="date-nav">
+        <button class="date-nav-btn" id="prevDay">‹</button>
+        <div class="date-nav-center">
+          <span class="date-nav-label" id="activeDateLabel"></span>
+          <button class="today-btn" id="jumpToday">오늘</button>
+        </div>
+        <button class="date-nav-btn" id="nextDay">›</button>
+      </div>
+
+      <div class="time-grid-wrapper">
+        <div class="time-grid" id="timeGrid"></div>
+      </div>
+
+      <button class="fab" id="fabAddTask" aria-label="할 일 추가">＋</button>
+    </section>
+
+    <!-- ===== GOALS VIEW ===== -->
+    <section class="view" id="view-goals">
+      <div class="goals-tabs">
+        <button class="goal-tab active" data-type="long" id="goalTabLong">🏆 장기 목표</button>
+        <button class="goal-tab" data-type="short" id="goalTabShort">🎯 단기 목표</button>
+      </div>
+
+      <div class="goal-type-panel active" id="panel-long">
+        <div class="goals-list" id="longGoalsList"></div>
+        <button class="add-goal-btn" id="addLongGoal">+ 장기 목표 추가</button>
+      </div>
+
+      <div class="goal-type-panel" id="panel-short">
+        <div class="goals-list" id="shortGoalsList"></div>
+        <button class="add-goal-btn" id="addShortGoal">+ 단기 목표 추가</button>
+      </div>
+    </section>
+
+    <!-- ===== CALENDAR VIEW ===== -->
+    <section class="view" id="view-calendar">
+      <div class="calendar-header">
+        <button class="cal-nav-btn" id="prevMonth">‹</button>
+        <span class="cal-month-label" id="calMonthLabel"></span>
+        <button class="cal-nav-btn" id="nextMonth">›</button>
+      </div>
+      <div class="calendar-grid" id="calendarGrid"></div>
+      <div class="cal-day-tasks">
+        <h3 class="cal-day-tasks-title" id="calDayTitle">날짜를 선택하세요</h3>
+        <ul class="cal-task-list" id="calTaskList"></ul>
+      </div>
+    </section>
+
+    <!-- ===== ALARM VIEW ===== -->
+    <section class="view" id="view-alarm">
+      <div class="alarm-hero">
+        <div class="alarm-clock-icon">⏰</div>
+        <h2>매일 목표 알람</h2>
+        <p>설정한 시각에 목표를 리마인드해 드립니다</p>
+      </div>
+
+      <div class="alarm-card">
+        <div class="alarm-toggle-row">
+          <label class="alarm-label">알람 활성화</label>
+          <label class="toggle-switch">
+            <input type="checkbox" id="alarmEnabled" />
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="alarm-time-row">
+          <input type="time" id="alarmTime" value="07:00" class="alarm-time-input" />
+          <span class="alarm-time-hint">매일 이 시각에 목표 알림</span>
+        </div>
+
+        <div class="alarm-goals-preview">
+          <h4>알람 시 표시될 목표</h4>
+          <ul id="alarmGoalsList"></ul>
+        </div>
+
+        <button class="save-alarm-btn" id="saveAlarm">💾 알람 저장</button>
+      </div>
+
+      <div class="alarm-history-card">
+        <h3>⏰ 알람 내역</h3>
+        <ul class="alarm-history-list" id="alarmHistoryList"></ul>
+      </div>
+    </section>
+
+    <!-- ===== ADMIN VIEW ===== -->
+    <section class="view" id="view-admin">
+      <!-- JS로 동적 렌더링 -->
+    </section>
+
+    <!-- ===== ROUTINE VIEW ===== -->
+    <section class="view" id="view-routine">
+      <div class="routine-view-header">
+        <h3>🔄 나의 루틴</h3>
+        <button class="admin-btn-add" id="addRoutineBtn">+ 루틴 추가</button>
+      </div>
+      <p class="routine-view-desc">매일 반복되는 일정을 등록하면 오늘 타임 그리드에 자동으로 표시됩니다.</p>
+      <div class="routine-list" id="routineList"></div>
+    </section>
+  </main>
+
+  <!-- 모바일 사이드바 딤 오버레이 -->
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+  <!-- 모바일 하단 탭바 -->
+  <nav class="mobile-tabbar" id="mobileTabbar" aria-label="하단 탭 메뉴">
+    <button class="tab-btn active" data-view="today" id="tab-today">
+      <span class="tab-btn-icon">📅</span>
+      <span class="tab-btn-label">오늘</span>
+    </button>
+    <button class="tab-btn" data-view="goals" id="tab-goals">
+      <span class="tab-btn-icon">🏆</span>
+      <span class="tab-btn-label">목표</span>
+    </button>
+    <button class="tab-btn" data-view="calendar" id="tab-calendar">
+      <span class="tab-btn-icon">🗓️</span>
+      <span class="tab-btn-label">캘린더</span>
+    </button>
+    <button class="tab-btn" data-view="alarm" id="tab-alarm">
+      <span class="tab-btn-icon">⏰</span>
+      <span class="tab-btn-label">알람</span>
+    </button>
+    <button class="tab-btn" data-view="routine" id="tab-routine">
+      <span class="tab-btn-icon">🔄</span>
+      <span class="tab-btn-label">루틴</span>
+    </button>
+  </nav>
+
+</div><!-- end appPage -->
+
+<!-- ===== MODALS ===== -->
+
+<!-- Task Modal -->
+<div class="modal-overlay" id="taskModal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="taskModalTitle">
+    <div class="modal-header">
+      <h2 class="modal-title" id="taskModalTitle">할 일 추가</h2>
+      <button class="modal-close" id="closeTaskModal" aria-label="닫기">✕</button>
+    </div>
+    <div class="modal-body">
+      <label class="form-label" for="taskTitle">제목 *</label>
+      <input type="text" class="form-input" id="taskTitle" placeholder="할 일을 입력하세요" />
+
+      <label class="form-label">카테고리</label>
+      <div class="category-chips" id="categoryChips">
+        <button class="chip active" data-cat="work">💼 업무</button>
+        <button class="chip" data-cat="study">📚 공부</button>
+        <button class="chip" data-cat="health">🏃 건강</button>
+        <button class="chip" data-cat="personal">🌱 개인</button>
+        <button class="chip" data-cat="social">👥 사회</button>
+      </div>
+
+      <label class="form-label">시간 블록</label>
+      <div class="time-range-row">
+        <select class="form-select" id="taskStartHour" style="flex:1"></select>
+        <span class="time-sep">–</span>
+        <select class="form-select" id="taskEndHour" style="flex:1"></select>
+      </div>
+
+      <label class="form-label" for="taskGoalLink">연결된 목표</label>
+      <select class="form-select" id="taskGoalLink" style="width:100%">
+        <option value="">목표 없음</option>
+      </select>
+
+      <label class="form-label" for="taskNote">메모</label>
+      <textarea class="form-textarea" id="taskNote" placeholder="메모를 입력하세요 (선택)"></textarea>
+
+      <label class="form-label">우선순위</label>
+      <div class="priority-chips" id="priorityChips">
+        <button class="chip" data-pri="low">🟢 낮음</button>
+        <button class="chip active" data-pri="medium">🟡 보통</button>
+        <button class="chip" data-pri="high">🔴 높음</button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" id="deleteTaskBtn" style="display:none">삭제</button>
+      <button class="btn-primary" id="saveTaskBtn">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- Goal Modal -->
+<div class="modal-overlay" id="goalModal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="goalModalTitle">
+    <div class="modal-header">
+      <h2 class="modal-title" id="goalModalTitle">목표 추가</h2>
+      <button class="modal-close" id="closeGoalModal" aria-label="닫기">✕</button>
+    </div>
+    <div class="modal-body">
+      <label class="form-label" for="goalTitle">목표 제목 *</label>
+      <input type="text" class="form-input" id="goalTitle" placeholder="목표를 입력하세요" />
+
+      <label class="form-label" for="goalDesc">설명</label>
+      <textarea class="form-textarea" id="goalDesc" placeholder="목표에 대한 상세 설명 (선택)"></textarea>
+
+      <label class="form-label" for="goalDeadline">마감 기한</label>
+      <input type="date" class="form-input" id="goalDeadline" />
+
+      <label class="form-label">목표 색상</label>
+      <div class="color-swatches" id="colorSwatches">
+        <button class="swatch active" data-color="#7c6ffd" style="background:#7c6ffd"></button>
+        <button class="swatch" data-color="#f43f5e" style="background:#f43f5e"></button>
+        <button class="swatch" data-color="#f59e0b" style="background:#f59e0b"></button>
+        <button class="swatch" data-color="#10b981" style="background:#10b981"></button>
+        <button class="swatch" data-color="#3b82f6" style="background:#3b82f6"></button>
+        <button class="swatch" data-color="#8b5cf6" style="background:#8b5cf6"></button>
+        <button class="swatch" data-color="#ec4899" style="background:#ec4899"></button>
+        <button class="swatch" data-color="#06b6d4" style="background:#06b6d4"></button>
+      </div>
+
+      <label class="form-label">진행률</label>
+      <div class="progress-input-row">
+        <input type="range" class="progress-range" id="goalProgress" min="0" max="100" value="0" />
+        <span class="progress-val" id="goalProgressVal">0%</span>
+      </div>
+
+      <label class="form-label">📍 마일스톤 (단계별 달성)</label>
+      <div class="milestone-section">
+        <div id="milestoneItems" class="milestone-items"></div>
+        <div class="milestone-btn-row">
+          <button type="button" class="milestone-action-btn" id="autoGenMilestone">⚡ 자동 생성</button>
+          <button type="button" class="milestone-action-btn" id="addMilestoneBtn">+ 직접 추가</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" id="deleteGoalBtn" style="display:none">삭제</button>
+      <button class="btn-secondary" id="cancelGoalBtn">취소</button>
+      <button class="btn-primary" id="saveGoalBtn">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- Routine Modal -->
+<div class="modal-overlay" id="routineModal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="routineModalTitle">
+    <div class="modal-header">
+      <h2 class="modal-title" id="routineModalTitle">루틴 추가</h2>
+      <button class="modal-close" id="closeRoutineModal" aria-label="닫기">✕</button>
+    </div>
+    <div class="modal-body">
+      <label class="form-label" for="routineTitle">루틴 이름 *</label>
+      <input type="text" class="form-input" id="routineTitle" placeholder="예: 아침 운동, 독서 시간" />
+
+      <label class="form-label">반복 요일</label>
+      <div class="day-selector" id="routineDaySel">
+        <button class="day-btn" data-day="0">일</button>
+        <button class="day-btn active" data-day="1">월</button>
+        <button class="day-btn active" data-day="2">화</button>
+        <button class="day-btn active" data-day="3">수</button>
+        <button class="day-btn active" data-day="4">목</button>
+        <button class="day-btn active" data-day="5">금</button>
+        <button class="day-btn" data-day="6">토</button>
+      </div>
+
+      <label class="form-label">시간대</label>
+      <div class="routine-time-picker">
+        <div class="time-picker-group">
+          <span class="time-picker-label">🕐 시작</span>
+          <div class="time-picker-inputs">
+            <select class="form-select time-sel" id="routineStartHour"></select>
+            <span class="time-colon">:</span>
+            <select class="form-select time-sel" id="routineStartMin"></select>
+          </div>
+        </div>
+        <span class="time-arrow">→</span>
+        <div class="time-picker-group">
+          <span class="time-picker-label">🏁 종료</span>
+          <div class="time-picker-inputs">
+            <select class="form-select time-sel" id="routineEndHour"></select>
+            <span class="time-colon">:</span>
+            <select class="form-select time-sel" id="routineEndMin"></select>
+          </div>
+        </div>
+      </div>
+
+      <label class="form-label">루틴 색상</label>
+      <div class="color-swatches" id="routineColorSwatches">
+        <button class="swatch active" data-color="#7c6ffd" style="background:#7c6ffd"></button>
+        <button class="swatch" data-color="#f43f5e" style="background:#f43f5e"></button>
+        <button class="swatch" data-color="#f59e0b" style="background:#f59e0b"></button>
+        <button class="swatch" data-color="#10b981" style="background:#10b981"></button>
+        <button class="swatch" data-color="#3b82f6" style="background:#3b82f6"></button>
+        <button class="swatch" data-color="#8b5cf6" style="background:#8b5cf6"></button>
+        <button class="swatch" data-color="#ec4899" style="background:#ec4899"></button>
+        <button class="swatch" data-color="#06b6d4" style="background:#06b6d4"></button>
+      </div>
+
+      <label class="form-label" for="routineNote">메모</label>
+      <textarea class="form-textarea" id="routineNote" placeholder="메모 (선택)"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" id="deleteRoutineBtn" style="display:none">삭제</button>
+      <button class="btn-primary" id="saveRoutineBtn">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- Alarm Notification Popup -->
+<div class="alarm-notif" id="alarmNotif" role="alert">
+  <div class="alarm-notif-inner">
+    <div class="alarm-notif-icon">⏰</div>
+    <div class="alarm-notif-text">
+      <h3>🔔 알람이 울렸어요!</h3>
+      <p>오늘도 목표를 향해 나아가요</p>
+      <ul id="alarmNotifGoals"></ul>
+    </div>
+    <button class="alarm-notif-close" id="closeAlarmNotif" aria-label="알림 닫기">✕</button>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
