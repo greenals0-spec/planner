@@ -6,6 +6,56 @@
 'use strict';
 
 // ──────────────────────────────────────────────────────
+//  Firebase 초기화 & 동기화
+// ──────────────────────────────────────────────────────
+const firebaseConfig = {
+  apiKey: "AIzaSyBifF0Ab8DRIE7YTXqCWRst58t_WJHW5LA",
+  authDomain: "planner-dd626.firebaseapp.com",
+  databaseURL: "https://planner-dd626-default-rtdb.firebaseio.com",
+  projectId: "planner-dd626",
+  storageBucket: "planner-dd626.firebasestorage.app",
+  messagingSenderId: "1096446655",
+  appId: "1:1096446655:web:b5e320ed90c9066aac0c0a"
+};
+
+let _fbDb = null;
+try {
+  firebase.initializeApp(firebaseConfig);
+  _fbDb = firebase.database();
+} catch(e) {
+  console.warn('Firebase 초기화 실패:', e);
+}
+
+// localStorage 키를 Firebase 경로로 변환 (점 제거)
+function _toFbKey(key) { return key.replace(/\./g, '_DOT_'); }
+function _fromFbKey(key) { return key.replace(/_DOT_/g, '.'); }
+
+// Firebase에 비동기 저장 (실패해도 앱 동작에 영향 없음)
+function _fbSave(key, val) {
+  if (!_fbDb) return;
+  _fbDb.ref('planner/' + _toFbKey(key)).set(val)
+    .catch(e => console.warn('Firebase 저장 실패:', key, e));
+}
+
+// 로그인 시 Firebase → localStorage 전체 동기화
+async function syncFromFirebase() {
+  if (!_fbDb) return;
+  try {
+    const snap = await _fbDb.ref('planner').get();
+    if (snap.exists()) {
+      const data = snap.val();
+      Object.keys(data).forEach(fbKey => {
+        const localKey = _fromFbKey(fbKey);
+        try { localStorage.setItem(localKey, JSON.stringify(data[fbKey])); } catch(e) {}
+      });
+      console.log('✅ Firebase → localStorage 동기화 완료');
+    }
+  } catch(e) {
+    console.warn('Firebase 동기화 실패 (오프라인?):', e);
+  }
+}
+
+// ──────────────────────────────────────────────────────
 //  상수 & 헬퍼
 // ──────────────────────────────────────────────────────
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
@@ -57,6 +107,7 @@ function loadData(key, def = null) {
 function saveData(key, val) {
   try { localStorage.setItem(key, JSON.stringify(val)); }
   catch (e) { console.warn('저장 실패:', e); }
+  _fbSave(key, val); // Firebase에도 동기화
 }
 
 // 사용자 DB
@@ -151,17 +202,6 @@ function getRoutinesForDate(date) {
     }
   });
 
-  // 데모 사용자
-  if (!users['demo']) {
-    users['demo'] = { id: 'demo', name: '데모 사용자', pw: '1234', role: 'user', inviteCode: 'iamsoawesome' };
-    saveUsers(users);
-    saveData('mp_data_demo_goals', [
-      { id: uid(), type: 'long', title: '프로그래밍 마스터', desc: '1년 안에 풀스택 개발자가 되자', deadline: '', color: '#7c6ffd', progress: 30 },
-      { id: uid(), type: 'long', title: '건강한 몸 만들기', desc: '체지방 15% 이하, 근육량 증가', deadline: '', color: '#10b981', progress: 20 },
-      { id: uid(), type: 'short', title: '이번 달 책 2권 읽기', desc: '', deadline: new Date(new Date().getFullYear(), new Date().getMonth()+1, 0).toISOString().slice(0,10), color: '#f59e0b', progress: 50 },
-      { id: uid(), type: 'short', title: '영어 단어 500개 암기', desc: '매일 10개씩', deadline: '', color: '#06b6d4', progress: 40 },
-    ]);
-  }
 })();
 
 // ──────────────────────────────────────────────────────
@@ -180,11 +220,18 @@ function switchAuthTab(tab) {
 }
 window.switchAuthTab = switchAuthTab;
 
-function doLogin() {
+async function doLogin() {
   const id = document.getElementById('loginId').value.trim();
   const pw = document.getElementById('loginPw').value;
   const errEl = document.getElementById('loginError');
   if (!id || !pw) { errEl.textContent = '아이디와 비밀번호를 입력하세요.'; errEl.classList.add('show'); return; }
+
+  // Firebase에서 최신 데이터를 먼저 동기화
+  const loginBtn = document.getElementById('loginBtn');
+  if (loginBtn) loginBtn.disabled = true;
+  await syncFromFirebase();
+  if (loginBtn) loginBtn.disabled = false;
+
   const users = getUsers();
   const user = users[id];
   if (!user || user.pw !== pw) { errEl.textContent = '아이디 또는 비밀번호가 올바르지 않습니다.'; errEl.classList.add('show'); return; }
@@ -662,8 +709,20 @@ function renderGoalList(type, goals, container) {
 //  CALENDAR
 // ──────────────────────────────────────────────────────
 function setupCalendar() {
-  document.getElementById('prevMonth').addEventListener('click', () => { calViewDate.setMonth(calViewDate.getMonth()-1); renderCalendar(); });
-  document.getElementById('nextMonth').addEventListener('click', () => { calViewDate.setMonth(calViewDate.getMonth()+1); renderCalendar(); });
+  document.getElementById('prevMonth').addEventListener('click', () => {
+    calViewDate = new Date(calViewDate.getFullYear(), calViewDate.getMonth() - 1, 1);
+    renderCalendar();
+  });
+  document.getElementById('nextMonth').addEventListener('click', () => {
+    calViewDate = new Date(calViewDate.getFullYear(), calViewDate.getMonth() + 1, 1);
+    renderCalendar();
+  });
+  document.getElementById('calJumpToday').addEventListener('click', () => {
+    calViewDate = new Date();
+    calSelectedDate = new Date();
+    renderCalendar();
+    renderCalDayTasks(calSelectedDate);
+  });
 }
 
 function renderCalendar() {
@@ -1568,6 +1627,14 @@ function renderAdminView() {
       </div>
     </div>
 
+    <!-- 전체 초기화 -->
+    <div class="admin-section">
+      <div class="admin-section-header">
+        <h3>⚠️ 데이터 초기화</h3>
+        <button class="admin-btn-del" id="deleteAllUsersBtn" style="background:rgba(244,63,94,0.15);color:#f43f5e;border:1px solid rgba(244,63,94,0.3);padding:8px 16px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;">🗑️ 관리자 제외 전체 삭제</button>
+      </div>
+    </div>
+
     <!-- 사용자 목록 -->
     <div class="admin-section">
       <div class="admin-section-header">
@@ -1616,6 +1683,9 @@ function renderAdminView() {
     userBody.appendChild(tr);
   });
 
+  // 전체 사용자 삭제 버튼
+  document.getElementById('deleteAllUsersBtn').addEventListener('click', deleteAllNonAdminUsers);
+
   // 이벤트
   document.getElementById('addCodeBtn').addEventListener('click', openAddCodeModal);
   document.querySelectorAll('.admin-del-btn[data-idx]').forEach(btn => {
@@ -1652,6 +1722,29 @@ function renderAdminView() {
       navigator.clipboard?.writeText(btn.dataset.code).then(() => showToast(`"${btn.dataset.code}" 복사됨! 📋`));
     });
   });
+}
+
+// 관리자 제외 전체 사용자 데이터 삭제
+function deleteAllNonAdminUsers() {
+  const users = getUsers();
+  const nonAdminIds = Object.keys(users).filter(id => id !== 'admin');
+  if (!nonAdminIds.length) { showToast('삭제할 사용자가 없습니다.'); return; }
+  if (!confirm(`관리자를 제외한 ${nonAdminIds.length}명의 사용자와 모든 데이터를 삭제합니다.\n이 작업은 되돌릴 수 없습니다. 계속할까요?`)) return;
+
+  const DATA_SUFFIXES = ['goals','tasks','alarm','alarm_hist','streak','alarm_last_fired','milestones','routines'];
+  nonAdminIds.forEach(uid => {
+    delete users[uid];
+    DATA_SUFFIXES.forEach(s => localStorage.removeItem(`mp_data_${uid}_${s}`));
+  });
+  saveUsers(users);
+
+  // 초대 코드 usedBy 초기화
+  const codes = getInviteCodes();
+  codes.forEach(c => { c.usedBy = []; });
+  saveInviteCodes(codes);
+
+  renderAdminView();
+  showToast(`✅ ${nonAdminIds.length}명의 사용자 데이터가 삭제되었습니다.`);
 }
 
 // 새 초대 코드 추가 모달

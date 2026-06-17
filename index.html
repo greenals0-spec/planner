@@ -212,7 +212,10 @@
     <section class="view" id="view-calendar">
       <div class="calendar-header">
         <button class="cal-nav-btn" id="prevMonth">‹</button>
-        <span class="cal-month-label" id="calMonthLabel"></span>
+        <div class="cal-header-center">
+          <span class="cal-month-label" id="calMonthLabel"></span>
+          <button class="today-btn" id="calJumpToday">오늘</button>
+        </div>
         <button class="cal-nav-btn" id="nextMonth">›</button>
       </div>
       <div class="calendar-grid" id="calendarGrid"></div>
@@ -486,6 +489,9 @@
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
+<!-- Firebase SDK (compat) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
