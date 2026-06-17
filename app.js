@@ -333,9 +333,11 @@ function initApp() {
   scheduleAlarmCheck();
   checkAlarmOnLoad();
 
-  // 관리자일 경우 관리자 메뉴 표시
+  // 관리자일 경우 관리자 메뉴 표시 (사이드바 + 모바일 탭바)
   const adminNav = document.getElementById('nav-admin');
   if (adminNav) adminNav.style.display = isAdmin() ? '' : 'none';
+  const adminTab = document.getElementById('tab-admin');
+  if (adminTab) adminTab.style.display = isAdmin() ? '' : 'none';
 
   // Today view 기본
   switchView('today');
