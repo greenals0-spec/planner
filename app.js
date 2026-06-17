@@ -115,7 +115,12 @@ function getUsers() { return loadData('mp_users', {}); }
 function saveUsers(u) { saveData('mp_users', u); }
 
 // 초대 코드 DB
-function getInviteCodes() { return loadData('mp_invite_codes', []); }
+function getInviteCodes() {
+  const codes = loadData('mp_invite_codes', []);
+  if (!Array.isArray(codes)) return [];
+  // Firebase는 빈 배열 필드를 삭제하므로 usedBy 복원
+  return codes.map(c => ({ ...c, usedBy: Array.isArray(c.usedBy) ? c.usedBy : [] }));
+}
 function saveInviteCodes(c) { saveData('mp_invite_codes', c); }
 
 // 현재 로그인 사용자 키 반환
@@ -126,7 +131,13 @@ function isAdmin() { const u = getUsers()[currentUserKey()]; return u && u.role 
 function userDataKey(suffix) { return `mp_data_${currentUserKey()}_${suffix}`; }
 function getGoals() { return loadData(userDataKey('goals'), []); }
 function saveGoals(g) { saveData(userDataKey('goals'), g); }
-function getTasks() { return loadData(userDataKey('tasks'), {}); } // { dateStr: [task,...] }
+function getTasks() {
+  const tasks = loadData(userDataKey('tasks'), {});
+  if (tasks && typeof tasks === 'object') {
+    Object.keys(tasks).forEach(d => { if (!Array.isArray(tasks[d])) tasks[d] = []; });
+  }
+  return tasks || {};
+} // { dateStr: [task,...] }
 function saveTasks(t) { saveData(userDataKey('tasks'), t); }
 function getAlarmSetting() { return loadData(userDataKey('alarm'), { enabled: false, time: '07:00' }); }
 function saveAlarmSetting(a) { saveData(userDataKey('alarm'), a); }
@@ -922,8 +933,9 @@ function setupAlarm() {
   document.getElementById('closeAlarmNotif').addEventListener('click', closeAlarmNotif);
   document.getElementById('notifBtn').addEventListener('click', requestNotifPermission);
 
-  // 알람 enabled 토글 변경
+  // 알람 enabled 토글 변경 시 즉시 저장
   document.getElementById('alarmEnabled').addEventListener('change', () => {
+    saveAlarmSettings();
     renderAlarmView();
   });
 
