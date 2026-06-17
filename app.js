@@ -504,7 +504,41 @@ function setTasksForDate(date, tasks) {
   saveTasks(all);
 }
 
+// 루틴 → 오늘 플랜 자동 등록 (이미 추가된 루틴은 중복 추가하지 않음)
+function applyRoutinesToDay(date) {
+  const routines = getRoutinesForDate(date);
+  if (!routines.length) return;
+
+  const tasks = getTasksForDate(date);
+  const addedIds = new Set(tasks.filter(t => t.fromRoutine).map(t => t.fromRoutine));
+
+  let changed = false;
+  routines.forEach(r => {
+    if (addedIds.has(r.id)) return; // 이미 추가됨
+    tasks.push({
+      id: uid(),
+      title: r.title,
+      startHour: r.startHour,
+      startMinute: r.startMinute || 0,
+      endHour: r.endHour,
+      endMinute: r.endMinute || 0,
+      category: 'personal',
+      priority: 'medium',
+      done: false,
+      fromRoutine: r.id,
+      color: r.color,
+      note: r.note || ''
+    });
+    changed = true;
+  });
+
+  if (changed) setTasksForDate(date, tasks);
+}
+
 function renderTimeGrid() {
+  // 루틴을 오늘 플랜에 자동 등록
+  applyRoutinesToDay(activeDate);
+
   const grid = document.getElementById('timeGrid');
   grid.innerHTML = '';
   const tasks = getTasksForDate(activeDate);
@@ -1583,6 +1617,18 @@ function saveRoutineData() {
     routines.push({ id: uid(), ...data });
   }
   saveRoutines(routines);
+
+  // 오늘 플랜에 자동 추가된 항목 동기화 (수정된 경우)
+  if (editingRoutineId) {
+    const todayTasks = getTasksForDate(activeDate);
+    const updated = todayTasks.map(t => {
+      if (t.fromRoutine !== editingRoutineId) return t;
+      return { ...t, title: data.title, startHour: data.startHour, startMinute: data.startMinute,
+               endHour: data.endHour, endMinute: data.endMinute, color: data.color, note: data.note };
+    });
+    setTasksForDate(activeDate, updated);
+  }
+
   closeRoutineModal();
   renderRoutineView();
   if (currentView === 'today') renderTimeGrid();
@@ -1593,6 +1639,11 @@ function deleteRoutineData() {
   if (!editingRoutineId) return;
   if (!confirm('이 루틴을 삭제할까요?')) return;
   saveRoutines(getRoutines().filter(r => r.id !== editingRoutineId));
+
+  // 오늘 플랜에서 자동 추가된 미완료 항목 제거
+  const todayTasks = getTasksForDate(activeDate);
+  setTasksForDate(activeDate, todayTasks.filter(t => !(t.fromRoutine === editingRoutineId && !t.done)));
+
   closeRoutineModal();
   renderRoutineView();
   if (currentView === 'today') renderTimeGrid();
