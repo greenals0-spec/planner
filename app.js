@@ -147,10 +147,13 @@ function getRoutinesForDate(date) {
 // ──────────────────────────────────────────────────────
 //  초기화 (관리자 + 초대코드)
 // ──────────────────────────────────────────────────────
-(function initSystem() {
+const _initReady = (async function initSystem() {
+  // 새 기기에서도 기존 데이터를 사용할 수 있도록 Firebase에서 먼저 동기화
+  await syncFromFirebase();
+
   const users = getUsers();
 
-  // 관리자 계정 (최초 1회)
+  // 관리자 계정 (최초 1회, Firebase sync 이후에 없을 경우만 생성)
   if (!users['admin']) {
     users['admin'] = { id: 'admin', name: '관리자', pw: 'admin1234', role: 'admin' };
     saveUsers(users);
@@ -1780,18 +1783,20 @@ function openAddCodeModal() {
     document.getElementById(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') doRegister(); });
   });
 
-  // 세션 복원
-  const savedUser = currentUserKey();
-  if (savedUser) {
-    const users = getUsers();
-    const user = users[savedUser];
-    if (user) {
-      document.getElementById('loginPage').style.display = 'none';
-      enterApp(user);
-      return;
+  // 세션 복원 — Firebase sync 완료 후 실행
+  _initReady.then(() => {
+    const savedUser = currentUserKey();
+    if (savedUser) {
+      const users = getUsers();
+      const user = users[savedUser];
+      if (user) {
+        document.getElementById('loginPage').style.display = 'none';
+        enterApp(user);
+        return;
+      }
     }
-  }
-  // 로그인 페이지 표시
-  document.getElementById('loginPage').style.display = 'flex';
-  document.getElementById('appPage').style.display = 'none';
+    // 로그인 페이지 표시
+    document.getElementById('loginPage').style.display = 'flex';
+    document.getElementById('appPage').style.display = 'none';
+  });
 })();
