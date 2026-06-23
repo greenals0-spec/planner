@@ -1901,13 +1901,11 @@ function _renderAnalog(el, h, m, s) {
     el.dataset.type = 'analog';
     el.innerHTML = `
       <div class="clock-content-wrap">
-        <div class="clock-fs-row">
-          <button class="clock-fullscreen-btn" id="clockFullscreenBtn" onclick="toggleClockFullscreen()" title="전체화면 전환" aria-label="전체화면 전환">
-            <svg id="clockFsIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
-            </svg>
-          </button>
-        </div>
+        <button class="clock-fullscreen-btn" id="clockFullscreenBtn" onclick="toggleClockFullscreen()" title="전체화면 전환" aria-label="전체화면 전환">
+          <svg id="clockFsIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+          </svg>
+        </button>
         <div class="analog-wrap">
           <svg class="analog-face" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
             <circle cx="100" cy="100" r="96" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>
@@ -1949,13 +1947,11 @@ function _renderDigital(el, h, m, s) {
     el.dataset.type = 'digital';
     el.innerHTML = `
       <div class="clock-content-wrap">
-        <div class="clock-fs-row">
-          <button class="clock-fullscreen-btn" id="clockFullscreenBtn" onclick="toggleClockFullscreen()" title="전체화면 전환" aria-label="전체화면 전환">
-            <svg id="clockFsIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
-            </svg>
-          </button>
-        </div>
+        <button class="clock-fullscreen-btn" id="clockFullscreenBtn" onclick="toggleClockFullscreen()" title="전체화면 전환" aria-label="전체화면 전환">
+          <svg id="clockFsIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+          </svg>
+        </button>
         <div class="digital-wrap">
           <div class="digital-time" id="dtime" data-ghost="${ghost}">${pad(h)}<span class="digital-colon">:</span>${pad(m)}</div>
         </div>
