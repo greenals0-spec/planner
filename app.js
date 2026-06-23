@@ -1803,18 +1803,13 @@ function _showClockPicker() {
       _startClockTick();
     });
   });
-  // 스타일 선택 화면에서는 전체화면 버튼 숨김
-  const fsBtn = document.getElementById('clockFullscreenBtn');
-  if (fsBtn) fsBtn.classList.remove('visible');
+  // (전체화면 버튼은 initClockView에서 표시 — 여기서 숨기지 않음)
 }
 
 function _startClockTick() {
   if (_clockTimer) clearInterval(_clockTimer);
   _renderClock();
   _clockTimer = setInterval(_renderClock, 1000);
-  // 시계가 시작되면 전체화면 버튼 표시
-  const fsBtn = document.getElementById('clockFullscreenBtn');
-  if (fsBtn) fsBtn.classList.add('visible');
 }
 
 /* ── 전체화면 토글 ── */
@@ -1842,8 +1837,6 @@ document.addEventListener('fullscreenchange', () => {
 function _renderClock() {
   if (currentView !== 'clock') {
     clearInterval(_clockTimer); _clockTimer = null;
-    const fsBtn = document.getElementById('clockFullscreenBtn');
-    if (fsBtn) fsBtn.classList.remove('visible');
     return;
   }
   if (!_clockStyle) return;
@@ -1908,6 +1901,13 @@ function _renderAnalog(el, h, m, s) {
     el.dataset.type = 'analog';
     el.innerHTML = `
       <div class="clock-content-wrap">
+        <div class="clock-fs-row">
+          <button class="clock-fullscreen-btn" id="clockFullscreenBtn" onclick="toggleClockFullscreen()" title="전체화면 전환" aria-label="전체화면 전환">
+            <svg id="clockFsIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+            </svg>
+          </button>
+        </div>
         <div class="analog-wrap">
           <svg class="analog-face" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
             <circle cx="100" cy="100" r="96" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>
@@ -1949,6 +1949,13 @@ function _renderDigital(el, h, m, s) {
     el.dataset.type = 'digital';
     el.innerHTML = `
       <div class="clock-content-wrap">
+        <div class="clock-fs-row">
+          <button class="clock-fullscreen-btn" id="clockFullscreenBtn" onclick="toggleClockFullscreen()" title="전체화면 전환" aria-label="전체화면 전환">
+            <svg id="clockFsIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+            </svg>
+          </button>
+        </div>
         <div class="digital-wrap">
           <div class="digital-time" id="dtime" data-ghost="${ghost}">${pad(h)}<span class="digital-colon">:</span>${pad(m)}</div>
         </div>

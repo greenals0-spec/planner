@@ -2602,33 +2602,31 @@ body {
 .clock-pick-label { font-size: 14px; font-weight: 300; color: rgba(255,255,255,0.85); }
 
 /* ── 전체화면 토글 버튼 ── */
-.clock-fullscreen-btn {
-  align-self: flex-end;
+/* 전체화면 버튼 행 — 시계 바로 위 우측 정렬 */
+.clock-fs-row {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
   margin-bottom: 12px;
+}
+.clock-fullscreen-btn {
   width: 40px;
   height: 40px;
-  background: rgba(255,255,255,0.07);
-  border: 1px solid rgba(255,255,255,0.18);
+  background: rgba(255,255,255,0.15);
+  border: 1.5px solid rgba(255,255,255,0.5);
   border-radius: 10px;
-  color: rgba(255,255,255,0.45);
+  color: rgba(255,255,255,0.9);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.2s, color 0.2s, opacity 0.3s;
-  z-index: 200;
-  opacity: 0;
-  pointer-events: none;
+  transition: background 0.2s, color 0.2s;
   flex-shrink: 0;
 }
-.clock-fullscreen-btn.visible {
-  opacity: 1;
-  pointer-events: auto;
-}
 .clock-fullscreen-btn:hover {
-  background: rgba(255,255,255,0.16);
-  color: rgba(255,255,255,0.9);
-  border-color: rgba(255,255,255,0.4);
+  background: rgba(255,255,255,0.3);
+  color: #fff;
+  border-color: rgba(255,255,255,0.8);
 }
 
 /* ── 공통 ── */
