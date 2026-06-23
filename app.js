@@ -71,6 +71,25 @@ const CAT_COLORS = {
 const CAT_LABELS = { work:'💼 업무', study:'📚 공부', health:'🏃 건강', personal:'🌱 개인', social:'👥 사회' };
 const PRI_LABELS = { low:'🟢 낮음', medium:'🟡 보통', high:'🔴 높음' };
 
+// ── 가계부 유형 ──
+const LEDGER_TYPES = {
+  revenue: { label: '매출', icon: '📈', color: '#22c55e', bg: 'rgba(34,197,94,0.12)'  },
+  income:  { label: '입금', icon: '💰', color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
+  expense: { label: '지출', icon: '💸', color: '#ef4444', bg: 'rgba(239,68,68,0.12)'  },
+};
+
+// ── 가계부 카테고리 ──
+const EXPENSE_CATS = {
+  food:      { label: '식비',   icon: '🍚', color: '#f59e0b' },
+  cafe:      { label: '카페',   icon: '☕', color: '#92400e' },
+  transport: { label: '교통',   icon: '🚌', color: '#3b82f6' },
+  shopping:  { label: '쇼핑',   icon: '🛍️', color: '#ec4899' },
+  medical:   { label: '의료',   icon: '💊', color: '#10b981' },
+  education: { label: '교육',   icon: '📚', color: '#8b5cf6' },
+  business:  { label: '사업',   icon: '💼', color: '#0ea5e9' },
+  other:     { label: '기타',   icon: '📌', color: '#6b7280' },
+};
+
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
 function fmtDate(d) {
   const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), dd = String(d.getDate()).padStart(2,'0');
@@ -298,6 +317,7 @@ function doLogout() {
   showToast('로그아웃 되었습니다.');
 }
 
+let _appInitDone = false;
 function enterApp(user) {
   document.getElementById('loginPage').style.display = 'none';
   document.getElementById('appPage').style.display = 'block';
@@ -307,7 +327,15 @@ function enterApp(user) {
   document.getElementById('userAvatar').textContent = initials;
   document.getElementById('userNameDisp').textContent = user.name;
 
-  initApp();
+  if (!_appInitDone) {
+    _appInitDone = true;
+    initApp();
+  } else {
+    // 재로그인: setup 함수 중복 실행 없이 뷰만 갱신
+    switchView('today');
+    renderGoalSummaryBar();
+    renderTimeGrid();
+  }
 }
 
 // ──────────────────────────────────────────────────────
@@ -323,6 +351,7 @@ let currentView = 'today';
 let alarmTimer = null;
 
 function initApp() {
+  migrateExpensesToLedger();
   activeDate = new Date();
   calViewDate = new Date();
   calSelectedDate = new Date();
@@ -334,15 +363,11 @@ function initApp() {
   setupTimeGrid();
   setupGoals();
   setupCalendar();
-  setupAlarm();
   setupFAB();
   setupModals();
   setupMobileTabbar();
   setupRoutine();
   startClock();
-  updateStreak();
-  scheduleAlarmCheck();
-  checkAlarmOnLoad();
 
   // 관리자일 경우 관리자 메뉴 표시 (사이드바 + 모바일 탭바)
   const adminNav = document.getElementById('nav-admin');
@@ -365,6 +390,7 @@ const VIEW_TITLES = {
   calendar: '캘린더',
   alarm: '알람 설정',
   routine: '🔄 루틴',
+  clock: '시계',
   admin: '🔧 관리자 패널',
 };
 
@@ -402,11 +428,21 @@ function switchView(view) {
   // 모바일: 뷰 전환 시 사이드바 닫기
   if (window.innerWidth <= 768) collapseSidebar();
 
-  if (view === 'today')    { renderGoalSummaryBar(); renderTimeGrid(); updateDateLabel(); }
+  if (view === 'today')    {
+    renderGoalSummaryBar(); renderTimeGrid(); updateDateLabel();
+    // 모달 focus() 등 브라우저 자동 스크롤 방지: 타임그리드 최상단 고정
+    requestAnimationFrame(() => {
+      const wrapper = document.querySelector('.time-grid-wrapper');
+      if (wrapper) wrapper.scrollTop = 0;
+      const viewEl2 = document.getElementById('view-today');
+      if (viewEl2) viewEl2.scrollTop = 0;
+    });
+  }
   if (view === 'goals')    renderGoals();
   if (view === 'calendar') { renderCalendar(); renderCalDayTasks(calSelectedDate); }
-  if (view === 'alarm')    renderAlarmView();
   if (view === 'routine')  renderRoutineView();
+  if (view === 'clock')    initClockView();
+  if (view === 'ledger')   { _ledgerDate = new Date(); renderLedgerView(); }
   if (view === 'admin')    renderAdminView();
 }
 
@@ -510,11 +546,30 @@ function applyRoutinesToDay(date) {
   if (!routines.length) return;
 
   const tasks = getTasksForDate(date);
-  const addedIds = new Set(tasks.filter(t => t.fromRoutine).map(t => t.fromRoutine));
-
   let changed = false;
+
   routines.forEach(r => {
-    if (addedIds.has(r.id)) return; // 이미 추가됨
+    const existing = tasks.find(t => t.fromRoutine === r.id);
+    if (existing) {
+      // 사용자가 직접 이동/리사이즈한 경우 시간 동기화 skip
+      if (!existing.userMoved) {
+        const sH = r.startHour, sM = r.startMinute || 0;
+        const eH = r.endHour,   eM = r.endMinute   || 0;
+        if (existing.startHour !== sH || existing.startMinute !== sM ||
+            existing.endHour   !== eH || existing.endMinute   !== eM ||
+            existing.title     !== r.title || existing.color !== r.color) {
+          existing.startHour   = sH;
+          existing.startMinute = sM;
+          existing.endHour     = eH;
+          existing.endMinute   = eM;
+          existing.title       = r.title;
+          existing.color       = r.color;
+          changed = true;
+        }
+      }
+      return;
+    }
+    // 새로 추가
     tasks.push({
       id: uid(),
       title: r.title,
@@ -536,16 +591,14 @@ function applyRoutinesToDay(date) {
 }
 
 function renderTimeGrid() {
-  // 루틴을 오늘 플랜에 자동 등록
   applyRoutinesToDay(activeDate);
 
   const grid = document.getElementById('timeGrid');
   grid.innerHTML = '';
   const tasks = getTasksForDate(activeDate);
-  const routines = getRoutinesForDate(activeDate);
   const now = new Date();
   const isToday = fmtDate(activeDate) === fmtDate(now);
-
+  // ─── 배경 시간 슬롯 (라벨 + 클릭 핸들러) ───
   HOURS.forEach(h => {
     const slot = document.createElement('div');
     slot.className = 'time-slot';
@@ -554,107 +607,285 @@ function renderTimeGrid() {
     const label = document.createElement('div');
     label.className = 'time-label';
     label.textContent = fmtHour(h);
-
-    const content = document.createElement('div');
-    content.className = 'time-slot-content';
-
-    // 루틴 블록 (시작 시간에만)
-    routines.filter(r => r.startHour === h).forEach(r => {
-      const rb = document.createElement('div');
-      rb.className = 'routine-block';
-      rb.style.borderColor = r.color;
-      rb.style.color = r.color;
-      rb.innerHTML = `
-        <div class="routine-block-dot" style="background:${r.color}"></div>
-        <div class="routine-block-inner">
-          <div class="routine-block-title">${escapeHtml(r.title)}</div>
-          <div class="routine-block-time">${fmtTime(r.startHour, r.startMinute)} – ${fmtTime(r.endHour, r.endMinute)}</div>
-        </div>
-        <span class="routine-tag" style="border-color:${r.color}">루틴</span>`;
-      rb.addEventListener('click', (e) => { e.stopPropagation(); openRoutineModal(r); });
-      content.appendChild(rb);
-    });
-
-    // 이 시간대에 속한 tasks
-    const slotTasks = tasks.filter(t => t.startHour <= h && t.endHour > h);
-    slotTasks.forEach(task => {
-      if (task.startHour === h) {
-        content.appendChild(buildTaskBlock(task));
-      }
-    });
-
     slot.appendChild(label);
-    slot.appendChild(content);
 
-    // 빈 슬롯 클릭 → 추가
     slot.addEventListener('click', (e) => {
-      if (e.target.closest('.task-block') || e.target.closest('.routine-block')) return;
+      if (e.target.closest('.tg-block')) return;
       openTaskModal(null, h);
     });
 
     grid.appendChild(slot);
   });
 
-  // 현재 시간으로 스크롤
-  if (isToday) {
-    setTimeout(() => {
-      const curSlot = grid.querySelector('.current-hour');
-      if (curSlot) curSlot.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    }, 100);
+  // ─── 이벤트 오버레이 ───
+  // 실제 슬롯 높이를 DOM에서 읽어 정확한 위치 계산 (border 포함)
+  const firstSlot = grid.querySelector('.time-slot');
+  const SLOT_H = firstSlot ? firstSlot.offsetHeight : 60;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'tg-overlay';
+  grid.appendChild(overlay);
+
+  // 유효한 이벤트 수집 (endMins > startMins)
+  const events = tasks.map(t => ({
+    ...t,
+    startMins: (t.startHour || 0) * 60 + (t.startMinute || 0),
+    endMins:   (t.endHour   || 0) * 60 + (t.endMinute   || 0),
+  })).filter(e => e.endMins > e.startMins);
+
+  _assignCols(events);
+
+  events.forEach(ev => {
+    const top      = ev.startMins * (SLOT_H / 60);
+    const height   = Math.max((ev.endMins - ev.startMins) * (SLOT_H / 60), 28);
+    const leftPct  = (ev._col / ev._maxCols) * 100;
+    const widthPct = (1       / ev._maxCols) * 100;
+
+    const block = document.createElement('div');
+    const isCompact = height < 46;
+    block.className = 'tg-block'
+      + (ev.fromRoutine ? ' tg-routine' + (isCompact ? ' tg-routine-compact' : '') : ' tg-task' + (isCompact ? ' tg-compact' : ''))
+      + (ev.done ? ' done' : '');
+    block.dataset.priority = ev.priority || 'medium';
+    block.style.cssText = `top:${top}px;height:${height}px;left:${leftPct.toFixed(2)}%;width:calc(${widthPct.toFixed(2)}% - 4px);`;
+
+    if (ev.fromRoutine) {
+      const color = ev.color || '#7c6ffd';
+      block.style.borderColor = color;
+      const timeStr = `${fmtTime(ev.startHour, ev.startMinute||0)} – ${fmtTime(ev.endHour, ev.endMinute||0)}`;
+      block.innerHTML = `
+        <button class="task-check routine-check" title="${ev.done ? '미완료로' : '완료로'} 표시">${ev.done ? '✓' : ''}</button>
+        <div class="tg-routine-body">
+          <div class="tg-routine-row">
+            <div class="tg-routine-title-wrap">
+              <div class="tg-block-title">${escapeHtml(ev.title)}</div>
+              <div class="tg-block-time tg-time-inline">${timeStr}</div>
+            </div>
+            <span class="routine-badge">루틴</span>
+          </div>
+          <div class="tg-block-time tg-time-below">${timeStr}</div>
+        </div>`;
+      block.querySelector('.routine-check').addEventListener('click', e => {
+        e.stopPropagation();
+        toggleTask(ev.id);
+      });
+      block.addEventListener('click', e => {
+        e.stopPropagation();
+        const r = getRoutines().find(r => r.id === ev.fromRoutine);
+        if (r) openRoutineModal(r); else openTaskModal(ev);
+      });
+    } else {
+      const catCol = CAT_COLORS[ev.category] || CAT_COLORS.work;
+      block.innerHTML = `
+        <button class="task-check" title="${ev.done ? '미완료로' : '완료로'} 표시">${ev.done ? '✓' : ''}</button>
+        <div class="tg-block-inner">
+          <div class="tg-block-title">${escapeHtml(ev.title)}</div>
+          <div class="tg-block-meta">
+            <span class="task-cat-badge" style="background:${catCol.bg};color:${catCol.text}">${CAT_LABELS[ev.category]||'기타'}</span>
+            <span class="tg-block-time">${fmtTime(ev.startHour, ev.startMinute||0)} – ${fmtTime(ev.endHour, ev.endMinute||0)}</span>
+          </div>
+        </div>`;
+      block.querySelector('.task-check').addEventListener('click', e => { e.stopPropagation(); toggleTask(ev.id); });
+      block.addEventListener('click', () => openTaskModal(ev));
+      block.addEventListener('keydown', e => { if (e.key === 'Enter') openTaskModal(ev); });
+      block.setAttribute('role', 'button');
+      block.setAttribute('tabindex', '0');
+    }
+
+    // ── 리사이즈 핸들 ──
+    const resizeHandle = document.createElement('div');
+    resizeHandle.className = 'tg-resize-handle';
+    block.appendChild(resizeHandle);
+
+    // ── 드래그 이동 ──
+    _makeDraggable(block, ev, SLOT_H);
+
+    // ── 리사이즈 ──
+    _makeResizable(resizeHandle, block, ev, SLOT_H);
+
+    overlay.appendChild(block);
+  });
+
+  // 타임그리드는 항상 00:00부터 표시 (자동 스크롤 없음)
+  // 현재 시간 슬롯은 CSS .current-hour 로 시각적 표시만
+}
+
+// ── 스크롤 잠금 헬퍼 ──
+let _savedScrollY = 0;
+function _lockScroll() {
+  _savedScrollY = window.scrollY;
+  document.documentElement.style.overflow = 'hidden';
+  document.body.style.overflow = 'hidden';
+}
+function _unlockScroll() {
+  document.documentElement.style.overflow = '';
+  document.body.style.overflow = '';
+  window.scrollTo(0, _savedScrollY); // 드래그 전 위치로 복구
+}
+
+// ── 블록 드래그 이동 ──
+function _makeDraggable(block, ev, SLOT_H) {
+  let active = false, moved = false, startY = 0, startTop = 0;
+  const getY = e => e.touches ? e.touches[0].clientY : e.clientY;
+
+  const onMove = e => {
+    if (!active) return;
+    e.preventDefault();
+    const dy = getY(e) - startY;
+    if (Math.abs(dy) > 4) moved = true;
+    if (!moved) return;
+    const rawTop = Math.max(0, startTop + dy);
+    const mins   = Math.round(rawTop / (SLOT_H / 60) / 5) * 5;
+    block.style.top = (mins * (SLOT_H / 60)) + 'px';
+    _updateBlockTime(block, mins, Math.min(mins + ev.endMins - ev.startMins, 1440));
+  };
+
+  const onEnd = () => {
+    if (!active) return;
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('touchmove', onMove);
+    document.removeEventListener('mouseup',   onEnd);
+    document.removeEventListener('touchend',  onEnd);
+    active = false;
+    _unlockScroll();
+    block.classList.remove('tg-dragging');
+    if (!moved) return; // 단순 클릭은 무시
+    const finalTop  = parseFloat(block.style.top) || 0;
+    const startMins = Math.round(finalTop / (SLOT_H / 60) / 5) * 5;
+    const endMins   = Math.min(startMins + (ev.endMins - ev.startMins), 1440);
+    _saveTaskTime(ev.id, startMins, endMins, ev.fromRoutine);
+    ev.startMins = startMins;
+    ev.endMins   = endMins;
+  };
+
+  const onStart = e => {
+    if (e.target.closest('.tg-resize-handle') || e.target.closest('button')) return;
+    active = true; moved = false;
+    startY   = getY(e);
+    startTop = parseFloat(block.style.top) || 0;
+    block.classList.add('tg-dragging');
+    _lockScroll();
+    document.addEventListener('mousemove', onMove, { passive: false });
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('mouseup',   onEnd);
+    document.addEventListener('touchend',  onEnd);
+    e.preventDefault();
+  };
+
+  block.addEventListener('mousedown',  onStart, { passive: false });
+  block.addEventListener('touchstart', onStart, { passive: false });
+}
+
+// ── 블록 리사이즈 ──
+function _makeResizable(handle, block, ev, SLOT_H) {
+  let active = false, moved = false, startY = 0, startH = 0;
+  const getY = e => e.touches ? e.touches[0].clientY : e.clientY;
+
+  const onMove = e => {
+    if (!active) return;
+    e.preventDefault();
+    const dy = getY(e) - startY;
+    if (Math.abs(dy) > 4) moved = true;
+    if (!moved) return;
+    const minH    = 5 * (SLOT_H / 60);
+    const durMins = Math.round(Math.max(minH, startH + dy) / (SLOT_H / 60) / 5) * 5;
+    block.style.height = (durMins * (SLOT_H / 60)) + 'px';
+    _updateBlockTime(block, ev.startMins, Math.min(ev.startMins + durMins, 1440));
+  };
+
+  const onEnd = () => {
+    if (!active) return;
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('touchmove', onMove);
+    document.removeEventListener('mouseup',   onEnd);
+    document.removeEventListener('touchend',  onEnd);
+    active = false;
+    _unlockScroll();
+    block.classList.remove('tg-resizing');
+    if (!moved) return;
+    const finalH  = parseFloat(block.style.height) || 60;
+    const durMins = Math.round(finalH / (SLOT_H / 60) / 5) * 5;
+    const endMins = Math.min(ev.startMins + durMins, 1440);
+    _saveTaskTime(ev.id, ev.startMins, endMins, ev.fromRoutine);
+    ev.endMins = endMins;
+  };
+
+  const onStart = e => {
+    active = true; moved = false;
+    startY = getY(e);
+    startH = parseFloat(block.style.height) || 60;
+    block.classList.add('tg-resizing');
+    _lockScroll();
+    document.addEventListener('mousemove', onMove, { passive: false });
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('mouseup',   onEnd);
+    document.addEventListener('touchend',  onEnd);
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  handle.addEventListener('mousedown',  onStart, { passive: false });
+  handle.addEventListener('touchstart', onStart, { passive: false });
+}
+
+function _updateBlockTime(block, startMins, endMins) {
+  const timeStr = fmtTime(Math.floor(startMins/60), startMins%60) + ' – ' + fmtTime(Math.floor(endMins/60), endMins%60);
+  block.querySelectorAll('.tg-block-time').forEach(el => el.textContent = timeStr);
+}
+
+function _saveTaskTime(id, startMins, endMins, fromRoutineId) {
+  const tasks = getTasksForDate(activeDate);
+  const t = tasks.find(t => t.id === id);
+  if (!t) return;
+  t.startHour   = Math.floor(startMins / 60);
+  t.startMinute = startMins % 60;
+  t.endHour     = Math.floor(endMins / 60);
+  t.endMinute   = endMins % 60;
+  t.userMoved   = true;
+  setTasksForDate(activeDate, tasks);
+
+  // 루틴 블록이면 원본 루틴 시간도 변경할지 확인
+  if (fromRoutineId) {
+    const sLabel = fmtTime(t.startHour, t.startMinute);
+    const eLabel = fmtTime(t.endHour,   t.endMinute);
+    const ok = confirm(`루틴 반복 시간을\n${sLabel} – ${eLabel} 로 변경할까요?\n\n확인: 루틴에도 적용\n취소: 오늘만 적용`);
+    if (ok) {
+      const routines = getRoutines();
+      const r = routines.find(r => r.id === fromRoutineId);
+      if (r) {
+        r.startHour   = t.startHour;
+        r.startMinute = t.startMinute;
+        r.endHour     = t.endHour;
+        r.endMinute   = t.endMinute;
+        saveRoutines(routines);
+        // 루틴 뷰가 열려있으면 갱신
+        if (currentView === 'routine') renderRoutineView();
+        showToast(`루틴 시간이 ${sLabel} – ${eLabel} 로 변경되었습니다.`);
+      }
+    }
   }
 }
 
-function buildTaskBlock(task) {
-  const block = document.createElement('div');
-  block.className = `task-block${task.done ? ' done' : ''}`;
-  block.dataset.id = task.id;
-  block.dataset.priority = task.priority || 'medium';
-  block.setAttribute('role', 'button');
-  block.setAttribute('tabindex', '0');
-
-  const catCol = CAT_COLORS[task.category] || CAT_COLORS.work;
-
-  block.innerHTML = `
-    <button class="task-check" title="${task.done ? '미완료로' : '완료로'} 표시">${task.done ? '✓' : ''}</button>
-    <div class="task-info">
-      <div class="task-text">${escapeHtml(task.title)}</div>
-      <div class="task-meta">
-        <span class="task-cat-badge" style="background:${catCol.bg};color:${catCol.text}">${CAT_LABELS[task.category] || '기타'}</span>
-        <span class="task-time-badge">${fmtHourRange(task.startHour, task.endHour)}</span>
-        <span class="task-priority">${PRI_LABELS[task.priority] || ''}</span>
-      </div>
-    </div>
-    <div class="task-block-actions">
-      <button class="task-action-btn edit-btn" title="수정">✏️</button>
-      <button class="task-action-btn del-btn" title="삭제">🗑️</button>
-    </div>`;
-
-  // 체크
-  block.querySelector('.task-check').addEventListener('click', (e) => {
-    e.stopPropagation();
-    toggleTask(task.id);
+// 겹치는 이벤트에 컬럼 인덱스(_col)와 전체 컬럼 수(_maxCols) 할당
+function _assignCols(events) {
+  events.sort((a, b) => a.startMins - b.startMins);
+  const colEnds = [];
+  events.forEach(ev => {
+    let col = colEnds.findIndex(end => end <= ev.startMins);
+    if (col === -1) col = colEnds.length;
+    ev._col = col;
+    colEnds[col] = ev.endMins;
   });
-  // 수정
-  block.querySelector('.edit-btn').addEventListener('click', (e) => {
-    e.stopPropagation();
-    openTaskModal(task);
+  events.forEach(ev => {
+    const grp = events.filter(e2 => e2.startMins < ev.endMins && e2.endMins > ev.startMins);
+    ev._maxCols = grp.reduce((m, e2) => Math.max(m, e2._col + 1), 0);
   });
-  // 삭제
-  block.querySelector('.del-btn').addEventListener('click', (e) => {
-    e.stopPropagation();
-    deleteTask(task.id);
-  });
-  // 블록 클릭
-  block.addEventListener('click', () => openTaskModal(task));
-  block.addEventListener('keydown', (e) => { if (e.key === 'Enter') openTaskModal(task); });
-
-  return block;
 }
 
 function toggleTask(id) {
   const tasks = getTasksForDate(activeDate);
   const t = tasks.find(t => t.id === id);
-  if (t) { t.done = !t.done; setTasksForDate(activeDate, tasks); renderTimeGrid(); updateStreak(); }
+  if (t) { t.done = !t.done; setTasksForDate(activeDate, tasks); renderTimeGrid(); }
 }
 
 function deleteTask(id) {
@@ -959,158 +1190,6 @@ function renderCalDayTasks(date) {
   list.innerHTML = html;
 }
 
-// ──────────────────────────────────────────────────────
-//  ALARM
-// ──────────────────────────────────────────────────────
-function setupAlarm() {
-  document.getElementById('saveAlarm').addEventListener('click', saveAlarmSettings);
-  document.getElementById('closeAlarmNotif').addEventListener('click', closeAlarmNotif);
-  document.getElementById('notifBtn').addEventListener('click', requestNotifPermission);
-
-  // 알람 enabled 토글 변경 시 즉시 저장
-  document.getElementById('alarmEnabled').addEventListener('change', () => {
-    saveAlarmSettings();
-    renderAlarmView();
-  });
-
-  // 알림 권한 상태 표시
-  updateNotifBtnState();
-}
-
-function updateNotifBtnState() {
-  const btn = document.getElementById('notifBtn');
-  if ('Notification' in window && Notification.permission === 'granted') {
-    btn.classList.add('granted');
-    btn.title = '알림 허용됨 ✓';
-  }
-}
-
-function requestNotifPermission() {
-  if (!('Notification' in window)) { showToast('이 브라우저는 알림을 지원하지 않습니다.'); return; }
-  if (Notification.permission === 'granted') { showToast('이미 알림이 허용되어 있습니다 ✓'); return; }
-  Notification.requestPermission().then(perm => {
-    if (perm === 'granted') { updateNotifBtnState(); showToast('알림이 허용되었습니다 🔔'); }
-    else { showToast('알림이 차단되었습니다. 브라우저 설정에서 변경하세요.'); }
-  });
-}
-
-function renderAlarmView() {
-  const setting = getAlarmSetting();
-  document.getElementById('alarmEnabled').checked = setting.enabled;
-  document.getElementById('alarmTime').value = setting.time;
-
-  // 목표 미리보기
-  const goals = getGoals();
-  const listEl = document.getElementById('alarmGoalsList');
-  if (!goals.length) {
-    listEl.innerHTML = '<li class="alarm-goals-empty">목표가 없습니다. 목표를 먼저 추가하세요.</li>';
-  } else {
-    listEl.innerHTML = goals.map(g => `
-      <li>
-        <div class="alarm-goal-dot" style="background:${g.color}"></div>
-        <span>${escapeHtml(g.title)}</span>
-        <span style="margin-left:auto;font-size:11px;color:var(--text-muted)">${g.progress}%</span>
-      </li>`).join('');
-  }
-
-  // 알람 내역
-  const hist = getAlarmHistory();
-  const histEl = document.getElementById('alarmHistoryList');
-  if (!hist.length) {
-    histEl.innerHTML = '<li class="alarm-history-empty">알람 내역이 없습니다</li>';
-  } else {
-    histEl.innerHTML = hist.slice(-10).reverse().map(h => `
-      <li class="alarm-history-item">
-        <span>⏰</span>
-        <span>${h.msg}</span>
-        <span class="alarm-history-time" style="margin-left:auto">${h.time}</span>
-      </li>`).join('');
-  }
-}
-
-function saveAlarmSettings() {
-  const enabled = document.getElementById('alarmEnabled').checked;
-  const time = document.getElementById('alarmTime').value;
-  saveAlarmSetting({ enabled, time });
-  scheduleAlarmCheck();
-  showToast(`알람이 저장되었습니다. (${enabled ? `매일 ${time}` : '비활성화'})`);
-}
-
-let alarmIntervalId = null;
-function clearAlarmTimer() { if (alarmIntervalId) { clearInterval(alarmIntervalId); alarmIntervalId = null; } }
-
-function scheduleAlarmCheck() {
-  clearAlarmTimer();
-  alarmIntervalId = setInterval(checkAlarm, 30000); // 30초마다 체크
-}
-
-function checkAlarmOnLoad() {
-  // 로드 시점에 알람 확인 (오늘 이미 보낸 적 없으면 팝업)
-  checkAlarm(true);
-}
-
-function checkAlarm(onLoad = false) {
-  const setting = getAlarmSetting();
-  if (!setting.enabled) return;
-
-  const now = new Date();
-  const [ah, am] = setting.time.split(':').map(Number);
-  const isAlarmTime = now.getHours() === ah && now.getMinutes() === am;
-  const todayKey = fmtDate(now);
-  const lastFiredKey = userDataKey('alarm_last_fired');
-  const lastFired = loadData(lastFiredKey, '');
-
-  // 같은 날 이미 알람 발생했으면 스킵 (로드시엔 오늘 안 보냈으면 보여줌)
-  if (onLoad) {
-    const alarmHour = ah;
-    const nowHour = now.getHours();
-    // 알람 시간이 지났고 오늘 안 보냈으면 팝업
-    if (lastFired === todayKey) return;
-    if (nowHour < alarmHour) return;
-    // 알람 시간이 지난 경우
-    triggerAlarmPopup(setting);
-    saveData(lastFiredKey, todayKey);
-    return;
-  }
-
-  if (!isAlarmTime) return;
-  if (lastFired === todayKey) return;
-
-  triggerAlarmPopup(setting);
-  saveData(lastFiredKey, todayKey);
-}
-
-function triggerAlarmPopup(setting) {
-  const goals = getGoals();
-  const notifGoals = document.getElementById('alarmNotifGoals');
-  notifGoals.innerHTML = goals.slice(0, 5).map(g =>
-    `<li><span style="color:${g.color}">●</span> ${escapeHtml(g.title)} <span style="opacity:0.6">(${g.progress}%)</span></li>`
-  ).join('');
-
-  document.getElementById('alarmNotif').classList.add('show');
-
-  // 시스템 알림 (권한 있을 경우)
-  if ('Notification' in window && Notification.permission === 'granted') {
-    const topGoals = goals.slice(0, 3).map(g => `• ${g.title}`).join('\n');
-    new Notification('🔔 알람 – MyPlanner', {
-      body: `오늘도 목표를 향해!\n${topGoals}`,
-      icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🎯</text></svg>',
-    });
-  }
-
-  // 내역 저장
-  const hist = getAlarmHistory();
-  hist.push({ time: new Date().toLocaleString('ko-KR'), msg: `${setting.time} 알람 발생` });
-  if (hist.length > 30) hist.shift();
-  saveAlarmHistory(hist);
-
-  // 5분 후 자동 닫기
-  setTimeout(closeAlarmNotif, 300000);
-}
-
-function closeAlarmNotif() {
-  document.getElementById('alarmNotif').classList.remove('show');
-}
 
 // ──────────────────────────────────────────────────────
 //  MOBILE TABBAR
@@ -1141,19 +1220,12 @@ function setupModals() {
   document.getElementById('closeTaskModal').addEventListener('click', closeTaskModal);
   document.getElementById('taskModal').addEventListener('click', (e) => { if (e.target === e.currentTarget) closeTaskModal(); });
   document.getElementById('saveTaskBtn').addEventListener('click', saveTask);
+  document.getElementById('toRoutineBtn').addEventListener('click', saveTaskAsRoutine);
   document.getElementById('deleteTaskBtn').addEventListener('click', () => {
     if (!editingTaskId) return;
     if (!confirm('이 할 일을 삭제할까요?')) return;
     deleteTask(editingTaskId);
     closeTaskModal();
-  });
-
-  // Category chips
-  document.getElementById('categoryChips').addEventListener('click', (e) => {
-    const chip = e.target.closest('.chip');
-    if (!chip) return;
-    document.querySelectorAll('#categoryChips .chip').forEach(c => c.classList.remove('active'));
-    chip.classList.add('active');
   });
 
   // Priority chips
@@ -1209,8 +1281,11 @@ function setupModals() {
 
   // ESC key
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { closeTaskModal(); closeGoalModal(); }
+    if (e.key === 'Escape') { closeTaskModal(); closeGoalModal(); closeExpenseModal(); }
   });
+
+  // 가계부 모달
+  initExpenseModal();
 }
 
 function openTaskModal(task, defaultHour = null) {
@@ -1222,10 +1297,6 @@ function openTaskModal(task, defaultHour = null) {
   // 값 채우기
   document.getElementById('taskTitle').value = task ? task.title : '';
   document.getElementById('taskNote').value = task ? (task.note || '') : '';
-
-  // Category
-  const cat = task ? task.category : 'work';
-  document.querySelectorAll('#categoryChips .chip').forEach(c => c.classList.toggle('active', c.dataset.cat === cat));
 
   // Priority
   const pri = task ? task.priority : 'medium';
@@ -1247,7 +1318,7 @@ function openTaskModal(task, defaultHour = null) {
   });
 
   modal.classList.add('open');
-  document.getElementById('taskTitle').focus();
+  document.getElementById('taskTitle').focus({ preventScroll: true });
 }
 
 function closeTaskModal() {
@@ -1257,9 +1328,8 @@ function closeTaskModal() {
 
 function saveTask() {
   const title = document.getElementById('taskTitle').value.trim();
-  if (!title) { showToast('제목을 입력하세요!'); document.getElementById('taskTitle').focus(); return; }
+  if (!title) { showToast('제목을 입력하세요!'); document.getElementById('taskTitle').focus({ preventScroll: true }); return; }
 
-  const category = document.querySelector('#categoryChips .chip.active')?.dataset.cat || 'work';
   const priority  = document.querySelector('#priorityChips .chip.active')?.dataset.pri  || 'medium';
   const startHour = parseInt(document.getElementById('taskStartHour').value);
   const endHour   = parseInt(document.getElementById('taskEndHour').value);
@@ -1272,9 +1342,9 @@ function saveTask() {
 
   if (editingTaskId) {
     const idx = tasks.findIndex(t => t.id === editingTaskId);
-    if (idx !== -1) tasks[idx] = { ...tasks[idx], title, category, priority, startHour, endHour, goalId, note };
+    if (idx !== -1) tasks[idx] = { ...tasks[idx], title, priority, startHour, endHour, goalId, note };
   } else {
-    tasks.push({ id: uid(), title, category, priority, startHour, endHour, goalId, note, done: false });
+    tasks.push({ id: uid(), title, priority, startHour, endHour, goalId, note, done: false });
   }
 
   setTasksForDate(activeDate, tasks);
@@ -1282,6 +1352,45 @@ function saveTask() {
   renderTimeGrid();
   renderGoalSummaryBar();
   showToast(editingTaskId ? '할 일이 수정되었습니다.' : '할 일이 추가되었습니다! 🎉');
+}
+
+// 태스크 모달 → 루틴 모달로 정보 전달
+function saveTaskAsRoutine() {
+  const title = document.getElementById('taskTitle').value.trim();
+  if (!title) { showToast('제목을 먼저 입력하세요!'); document.getElementById('taskTitle').focus({ preventScroll: true }); return; }
+
+  const startHour = parseInt(document.getElementById('taskStartHour').value);
+  const endHour   = parseInt(document.getElementById('taskEndHour').value);
+  const note      = document.getElementById('taskNote').value.trim();
+
+  const todayDow = activeDate.getDay();
+  closeTaskModal();
+
+  // 루틴 모달 열기 (내부에서 기본값 9시/10시 설정됨)
+  openRoutineModal(null);
+
+  // 제목·메모 덮어쓰기
+  document.getElementById('routineTitle').value = title;
+  document.getElementById('routineNote').value  = note;
+
+  // 시간: options 배열에서 value로 직접 탐색하여 선택 (가장 안전)
+  const setSelHour = (id, hour) => {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    const opt = Array.from(sel.options).find(o => parseInt(o.value) === hour);
+    if (opt) opt.selected = true;
+  };
+  setSelHour('routineStartHour', startHour);
+  setSelHour('routineEndHour', endHour > startHour ? endHour : Math.min(startHour + 1, 23));
+  const rSM = document.getElementById('routineStartMin');
+  const rEM = document.getElementById('routineEndMin');
+  if (rSM) rSM.value = '0';
+  if (rEM) rEM.value = '0';
+
+  // 기본 요일: 오늘 요일만 선택
+  document.querySelectorAll('.day-btn').forEach(btn =>
+    btn.classList.toggle('active', parseInt(btn.dataset.day) === todayDow)
+  );
 }
 
 // ──────────────────────────────────────────────────────
@@ -1308,7 +1417,7 @@ function openGoalModal(goal, type) {
   renderMilestoneList(); // 렬더링 + 진행률 동기화 포함
 
   document.getElementById('goalModal').classList.add('open');
-  document.getElementById('goalTitle').focus();
+  document.getElementById('goalTitle').focus({ preventScroll: true });
 }
 
 function closeGoalModal() {
@@ -1318,7 +1427,7 @@ function closeGoalModal() {
 
 function saveGoal() {
   const title = document.getElementById('goalTitle').value.trim();
-  if (!title) { showToast('목표 제목을 입력하세요!'); document.getElementById('goalTitle').focus(); return; }
+  if (!title) { showToast('목표 제목을 입력하세요!'); document.getElementById('goalTitle').focus({ preventScroll: true }); return; }
 
   const desc     = document.getElementById('goalDesc').value.trim();
   const deadline = document.getElementById('goalDeadline').value;
@@ -1457,7 +1566,10 @@ function addNewMilestone() {
 // ──────────────────────────────────────────────────────
 let editingRoutineId = null;
 
+let _routineSetupDone = false;
 function setupRoutine() {
+  if (_routineSetupDone) return;
+  _routineSetupDone = true;
   document.getElementById('addRoutineBtn')?.addEventListener('click', () => openRoutineModal(null));
   document.getElementById('closeRoutineModal')?.addEventListener('click', closeRoutineModal);
   document.getElementById('routineModal')?.addEventListener('click', (e) => { if (e.target.id === 'routineModal') closeRoutineModal(); });
@@ -1586,7 +1698,7 @@ function openRoutineModal(routine) {
   document.querySelectorAll('#routineColorSwatches .swatch').forEach(s => s.classList.toggle('active', s.dataset.color === color));
 
   document.getElementById('routineModal').classList.add('open');
-  document.getElementById('routineTitle').focus();
+  document.getElementById('routineTitle').focus({ preventScroll: true });
 }
 
 function closeRoutineModal() {
@@ -1638,16 +1750,216 @@ function saveRoutineData() {
 function deleteRoutineData() {
   if (!editingRoutineId) return;
   if (!confirm('이 루틴을 삭제할까요?')) return;
-  saveRoutines(getRoutines().filter(r => r.id !== editingRoutineId));
+  const rid = editingRoutineId;
+  saveRoutines(getRoutines().filter(r => r.id !== rid));
 
-  // 오늘 플랜에서 자동 추가된 미완료 항목 제거
-  const todayTasks = getTasksForDate(activeDate);
-  setTasksForDate(activeDate, todayTasks.filter(t => !(t.fromRoutine === editingRoutineId && !t.done)));
+  // 모든 날짜에서 해당 루틴으로 생성된 task 제거 (완료 여부 무관)
+  const all = getTasks();
+  Object.keys(all).forEach(dateKey => {
+    all[dateKey] = all[dateKey].filter(t => t.fromRoutine !== rid);
+  });
+  saveTasks(all);
 
   closeRoutineModal();
   renderRoutineView();
   if (currentView === 'today') renderTimeGrid();
   showToast('루틴이 삭제되었습니다.');
+}
+
+// ──────────────────────────────────────────────────────
+//  CLOCK VIEW
+// ──────────────────────────────────────────────────────
+let _clockTimer = null;
+let _clockStyle = null; // null = 스타일 선택 화면
+
+function initClockView() {
+  if (_clockTimer) { clearInterval(_clockTimer); _clockTimer = null; }
+  _clockStyle = null; // 진입할 때마다 선택 화면 먼저
+  _showClockPicker();
+}
+
+function _showClockPicker() {
+  const display = document.getElementById('clockDisplay');
+  if (!display) return;
+  display.dataset.type = 'picker';
+  display.innerHTML = `
+    <div class="clock-picker-wrap">
+      <div class="clock-picker-title">시계 스타일 선택</div>
+      <div class="clock-picker-btns">
+        <button class="clock-pick-btn" data-style="analog">
+          <span class="clock-pick-icon">🕐</span>
+          <span class="clock-pick-label">아날로그</span>
+        </button>
+        <button class="clock-pick-btn" data-style="digital">
+          <span class="clock-pick-icon">💡</span>
+          <span class="clock-pick-label">디지털</span>
+        </button>
+      </div>
+    </div>`;
+  display.querySelectorAll('.clock-pick-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _clockStyle = btn.dataset.style;
+      display.dataset.type = '';
+      _startClockTick();
+    });
+  });
+  // 스타일 선택 화면에서는 전체화면 버튼 숨김
+  const fsBtn = document.getElementById('clockFullscreenBtn');
+  if (fsBtn) fsBtn.classList.remove('visible');
+}
+
+function _startClockTick() {
+  if (_clockTimer) clearInterval(_clockTimer);
+  _renderClock();
+  _clockTimer = setInterval(_renderClock, 1000);
+  // 시계가 시작되면 전체화면 버튼 표시
+  const fsBtn = document.getElementById('clockFullscreenBtn');
+  if (fsBtn) fsBtn.classList.add('visible');
+}
+
+/* ── 전체화면 토글 ── */
+function toggleClockFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  } else {
+    document.exitFullscreen().catch(() => {});
+  }
+}
+
+// 전체화면 상태 변경 시 아이콘 업데이트
+document.addEventListener('fullscreenchange', () => {
+  const icon = document.getElementById('clockFsIcon');
+  if (!icon) return;
+  if (document.fullscreenElement) {
+    // 전체화면 → 닫기 아이콘
+    icon.innerHTML = '<path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/>';
+  } else {
+    // 일반 → 확대 아이콘
+    icon.innerHTML = '<path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>';
+  }
+});
+
+function _renderClock() {
+  if (currentView !== 'clock') {
+    clearInterval(_clockTimer); _clockTimer = null;
+    const fsBtn = document.getElementById('clockFullscreenBtn');
+    if (fsBtn) fsBtn.classList.remove('visible');
+    return;
+  }
+  if (!_clockStyle) return;
+  const now = new Date();
+  const h = now.getHours(), m = now.getMinutes(), s = now.getSeconds();
+  const display = document.getElementById('clockDisplay');
+  if (!display) return;
+  if (_clockStyle === 'analog')  _renderAnalog(display, h, m, s);
+  else                           _renderDigital(display, h, m, s);
+  _updateClockTask();
+}
+
+function _updateClockTask() {
+  const taskEl = document.getElementById('clockTaskInfo');
+  if (!taskEl) return;
+  const now = new Date();
+  const nowMins = now.getHours() * 60 + now.getMinutes();
+  const tasks = getTasksForDate(activeDate);
+  const cur = tasks.find(t => {
+    const start = (t.startHour || 0) * 60 + (t.startMinute || 0);
+    const end   = (t.endHour   || 0) * 60 + (t.endMinute   || 0);
+    return start <= nowMins && nowMins < end && start !== end;
+  });
+  if (cur) {
+    const start = (cur.startHour || 0) * 60 + (cur.startMinute || 0);
+    const end   = (cur.endHour   || 0) * 60 + (cur.endMinute   || 0);
+    const pct   = Math.min(100, Math.round((nowMins - start) / (end - start) * 100));
+    taskEl.innerHTML = `
+      <div class="clock-task-title">${escapeHtml(cur.title)}</div>
+      <div class="clock-task-time">${fmtTime(cur.startHour, cur.startMinute)} – ${fmtTime(cur.endHour, cur.endMinute)}</div>
+      <div class="clock-task-bar"><div class="clock-task-progress" style="width:${pct}%"></div></div>`;
+    taskEl.style.opacity = '1';
+  } else {
+    taskEl.innerHTML = '';
+    taskEl.style.opacity = '0';
+  }
+}
+
+/* ── ANALOG ── */
+// 모든 바늘은 중심(100,100) 기준으로 회전
+// _rotateHand(id, deg, tipLen)  → x2,y2 = 중심에서 tipLen 만큼 앞으로
+// _rotateHandTail(id, deg, tailLen) → x2,y2 = 중심에서 tailLen 만큼 뒤로
+function _rotateHand(id, deg, tipLen) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const rad = (deg - 90) * Math.PI / 180;
+  el.setAttribute('x1', '100'); el.setAttribute('y1', '100');
+  el.setAttribute('x2', 100 + tipLen * Math.cos(rad));
+  el.setAttribute('y2', 100 + tipLen * Math.sin(rad));
+}
+function _rotateHandTail(id, deg, tailLen) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const rad = (deg - 90 + 180) * Math.PI / 180; // 반대 방향
+  el.setAttribute('x1', '100'); el.setAttribute('y1', '100');
+  el.setAttribute('x2', 100 + tailLen * Math.cos(rad));
+  el.setAttribute('y2', 100 + tailLen * Math.sin(rad));
+}
+
+function _renderAnalog(el, h, m, s) {
+  if (el.dataset.type !== 'analog') {
+    el.dataset.type = 'analog';
+    el.innerHTML = `
+      <div class="clock-content-wrap">
+        <div class="analog-wrap">
+          <svg class="analog-face" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="100" cy="100" r="96" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>
+            ${Array.from({length:60},(_,i)=>{
+              const a=(i*6-90)*Math.PI/180, big=i%5===0;
+              const r1=big?80:88, r2=95;
+              return `<line x1="${100+r1*Math.cos(a)}" y1="${100+r1*Math.sin(a)}" x2="${100+r2*Math.cos(a)}" y2="${100+r2*Math.sin(a)}" stroke="white" stroke-width="${big?2.5:0.8}" stroke-linecap="round" opacity="${big?0.9:0.3}"/>`;
+            }).join('')}
+            <!-- 시침 -->
+            <line id="ach" x1="100" y1="100" x2="100" y2="50" stroke="white" stroke-width="5" stroke-linecap="round"/>
+            <!-- 분침 -->
+            <line id="acm" x1="100" y1="100" x2="100" y2="30" stroke="white" stroke-width="3" stroke-linecap="round"/>
+            <!-- 초침 앞 -->
+            <line id="acs"  x1="100" y1="100" x2="100" y2="22" stroke="rgba(255,255,255,0.55)" stroke-width="1.2" stroke-linecap="round"/>
+            <!-- 초침 꼬리 -->
+            <line id="acst" x1="100" y1="100" x2="100" y2="115" stroke="rgba(255,255,255,0.55)" stroke-width="1.2" stroke-linecap="round"/>
+            <circle cx="100" cy="100" r="3.5" fill="white"/>
+          </svg>
+        </div>
+        <div id="clockTaskInfo" class="clock-task-info"></div>
+      </div>
+      <div class="clock-sec-corner" id="asec">${String(s).padStart(2,'0')}</div>`;
+  }
+  const hDeg = (h % 12) * 30 + m * 0.5 + s * (0.5/60);
+  const mDeg = m * 6 + s * 0.1;
+  const sDeg = s * 6;
+  _rotateHand('ach',  hDeg, 50);   // 시침: 50px
+  _rotateHand('acm',  mDeg, 68);   // 분침: 68px
+  _rotateHand('acs',  sDeg, 76);   // 초침 앞: 76px
+  _rotateHandTail('acst', sDeg, 15); // 초침 꼬리: 15px
+  const ae = document.getElementById('asec'); if(ae) ae.textContent = String(s).padStart(2,'0');
+}
+
+/* ── DIGITAL ── */
+function _renderDigital(el, h, m, s) {
+  const pad = n => String(n).padStart(2,'0');
+  const ghost = '88:88';
+  if (el.dataset.type !== 'digital') {
+    el.dataset.type = 'digital';
+    el.innerHTML = `
+      <div class="clock-content-wrap">
+        <div class="digital-wrap">
+          <div class="digital-time" id="dtime" data-ghost="${ghost}">${pad(h)}<span class="digital-colon">:</span>${pad(m)}</div>
+        </div>
+        <div id="clockTaskInfo" class="clock-task-info"></div>
+      </div>
+      <div class="clock-sec-corner" id="dsec">${pad(s)}</div>`;
+    return;
+  }
+  const dt = document.getElementById('dtime');
+  if(dt) dt.innerHTML = `${pad(h)}<span class="digital-colon ${s%2===0?'':'blink'}">:</span>${pad(m)}`;
+  const ds = document.getElementById('dsec'); if(ds) ds.textContent = pad(s);
 }
 
 // ──────────────────────────────────────────────────────
@@ -1865,3 +2177,380 @@ function openAddCodeModal() {
     document.getElementById('appPage').style.display = 'none';
   });
 })();
+
+// ══════════════════════════════════════════════════════
+//  가계부 (Ledger) 기능
+// ══════════════════════════════════════════════════════
+
+// ── 데이터 ──
+function getLedger()                     { return loadData(userDataKey('ledger'), {}); }
+function saveLedger(data)                { saveData(userDataKey('ledger'), data); }
+function getLedgerForDate(date)          { return getLedger()[fmtDate(date)] || []; }
+function setLedgerForDate(date, list)    {
+  const all = getLedger();
+  all[fmtDate(date)] = list;
+  saveLedger(all);
+}
+
+// 기존 expenses → ledger 마이그레이션 (1회)
+function migrateExpensesToLedger() {
+  const old = loadData(userDataKey('expenses'), null);
+  if (!old || !Object.keys(old).length) return;
+  const ledger = getLedger();
+  Object.entries(old).forEach(([date, list]) => {
+    if (!Array.isArray(list)) return;
+    if (!ledger[date]) ledger[date] = [];
+    list.forEach(e => {
+      if (!ledger[date].find(x => x.id === e.id))
+        ledger[date].push({ ...e, type: 'expense' });
+    });
+  });
+  saveLedger(ledger);
+  saveData(userDataKey('expenses'), {});
+}
+
+function fmtMoney(n) {
+  return '₩' + Number(n).toLocaleString('ko-KR');
+}
+
+// ── 가계부 모달 상태 ──
+let _editingLedgerId  = null;
+let _selectedLedgerType = 'expense';
+let _selectedExpenseCat = 'food';
+let _selectedPayMethod  = 'cash';
+let _ledgerModalHour  = 0;
+
+function _renderExpenseCatChips() {
+  const chips = document.getElementById('expenseCatChips');
+  if (!chips) return;
+  chips.innerHTML = Object.entries(EXPENSE_CATS).map(([key, c]) =>
+    `<button class="exp-cat-chip${key === _selectedExpenseCat ? ' active' : ''}" data-cat="${key}">${c.icon} ${c.label}</button>`
+  ).join('');
+  chips.querySelectorAll('.exp-cat-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _selectedExpenseCat = btn.dataset.cat;
+      chips.querySelectorAll('.exp-cat-chip').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+}
+
+function openLedgerModal(entry, hour = 0, type = 'expense') {
+  _editingLedgerId    = entry ? entry.id : null;
+  _selectedLedgerType = entry ? (entry.type || type) : type;
+  _selectedExpenseCat = entry ? (entry.category || 'food') : 'food';
+  _selectedPayMethod  = entry ? (entry.payMethod || 'cash') : 'cash';
+  _ledgerModalHour    = entry ? (entry.hour ?? hour) : hour;
+
+  const hStr = String(_ledgerModalHour).padStart(2, '0');
+  const lt   = LEDGER_TYPES[_selectedLedgerType];
+  document.getElementById('expenseModalTitle').textContent =
+    `${lt.icon} ${lt.label} ${entry ? '수정' : '추가'} (${hStr}:00)`;
+  document.getElementById('expenseAmount').value = entry ? entry.amount : '';
+  document.getElementById('expenseNote').value   = entry ? (entry.note || '') : '';
+  document.getElementById('deleteExpenseBtn').style.display = entry ? '' : 'none';
+
+  // 타입 탭
+  document.querySelectorAll('.ledger-type-tab').forEach(btn =>
+    btn.classList.toggle('active', btn.dataset.type === _selectedLedgerType)
+  );
+
+  // 카테고리: 지출일 때만 표시
+  const catSec = document.getElementById('expenseCatSection');
+  catSec.style.display = _selectedLedgerType === 'expense' ? '' : 'none';
+  if (_selectedLedgerType === 'expense') _renderExpenseCatChips();
+
+  // 결제수단 탭
+  document.querySelectorAll('.pay-method-tab').forEach(btn =>
+    btn.classList.toggle('active', btn.dataset.pay === _selectedPayMethod)
+  );
+
+  document.getElementById('expenseModal').classList.add('open');
+  document.getElementById('expenseAmount').focus({ preventScroll: true });
+}
+
+function closeExpenseModal() {
+  document.getElementById('expenseModal').classList.remove('open');
+  _editingLedgerId = null;
+}
+
+function saveExpense() {
+  const amount = parseInt(document.getElementById('expenseAmount').value.replace(/[^0-9]/g, ''));
+  if (!amount || amount <= 0) { showToast('금액을 입력하세요'); return; }
+  const note = document.getElementById('expenseNote').value.trim();
+  const list = getLedgerForDate(_ledgerDate);
+
+  if (_editingLedgerId) {
+    const idx = list.findIndex(e => e.id === _editingLedgerId);
+    if (idx !== -1) list[idx] = {
+      ...list[idx], amount, note, type: _selectedLedgerType,
+      category: _selectedLedgerType === 'expense' ? _selectedExpenseCat : null,
+      payMethod: _selectedPayMethod,
+      hour: _ledgerModalHour,
+    };
+  } else {
+    list.push({
+      id: uid(), amount, note, type: _selectedLedgerType,
+      category: _selectedLedgerType === 'expense' ? _selectedExpenseCat : null,
+      payMethod: _selectedPayMethod,
+      hour: _ledgerModalHour,
+    });
+  }
+
+  setLedgerForDate(_ledgerDate, list);
+  closeExpenseModal();
+  _renderLedgerTimetable();
+  _renderLedgerMonthly();
+  const lt = LEDGER_TYPES[_selectedLedgerType];
+  showToast(_editingLedgerId ? '수정했습니다' : `${lt.label}을 기록했습니다 ${lt.icon}`);
+}
+
+function deleteExpense() {
+  if (!_editingLedgerId) return;
+  const list = getLedgerForDate(_ledgerDate).filter(e => e.id !== _editingLedgerId);
+  setLedgerForDate(_ledgerDate, list);
+  closeExpenseModal();
+  _renderLedgerTimetable();
+  _renderLedgerMonthly();
+  showToast('삭제했습니다');
+}
+
+// ── 가계부 뷰 ──
+let _ledgerDate = new Date();
+
+function renderLedgerView() {
+  const view = document.getElementById('view-ledger');
+  if (!view) return;
+
+  view.innerHTML = `
+    <div class="ledger-day-nav">
+      <button class="date-nav-btn" id="ledgerPrev">‹</button>
+      <span class="ledger-day-label" id="ledgerDayLabel">-</span>
+      <button class="date-nav-btn" id="ledgerNext">›</button>
+    </div>
+    <div id="ledgerTimetableWrap"></div>
+    <div id="ledgerMonthlySummary"></div>
+  `;
+
+  _renderLedgerTimetable();
+  _renderLedgerMonthly();
+
+  document.getElementById('ledgerPrev').addEventListener('click', () => {
+    _ledgerDate = new Date(_ledgerDate.getTime() - 86400000);
+    _renderLedgerTimetable();
+    _renderLedgerMonthly();
+  });
+  document.getElementById('ledgerNext').addEventListener('click', () => {
+    _ledgerDate = new Date(_ledgerDate.getTime() + 86400000);
+    _renderLedgerTimetable();
+    _renderLedgerMonthly();
+  });
+}
+
+function _renderLedgerTimetable() {
+  const wrap = document.getElementById('ledgerTimetableWrap');
+  const label = document.getElementById('ledgerDayLabel');
+  if (!wrap) return;
+
+  const d = _ledgerDate;
+  if (label) label.textContent =
+    `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일 (${DOW_KO[d.getDay()]})`;
+
+  const list  = getLedgerForDate(_ledgerDate);
+  const types = ['revenue', 'income', 'expense'];
+  const totals = {};
+  types.forEach(t => totals[t] = list.filter(e => e.type === t).reduce((s, e) => s + (e.amount||0), 0));
+
+  let html = `<div class="ldg-grid">
+    <div class="ldg-th ldg-time-col"></div>
+    ${types.map(t => {
+      const lt = LEDGER_TYPES[t];
+      return `<div class="ldg-th ldg-col-${t}" style="color:${lt.color}">${lt.icon} ${lt.label}</div>`;
+    }).join('')}`;
+
+  for (let h = 0; h < 24; h++) {
+    const hStr = String(h).padStart(2,'0');
+    html += `<div class="ldg-time-label">${hStr}</div>`;
+    types.forEach(t => {
+      const entries = list.filter(e => e.type === t && e.hour === h);
+      html += `<div class="ldg-slot ldg-slot-${t}" data-hour="${h}" data-type="${t}">`;
+      if (entries.length > 0) {
+        entries.forEach(e => {
+          const catIcon = t === 'expense' ? (EXPENSE_CATS[e.category]?.icon || '📌') : '';
+          const payBadge = e.payMethod === 'card' ? '💳' : '💵';
+          html += `<div class="ldg-entry ldg-entry-${t}" data-id="${e.id}">
+            ${catIcon ? `<span class="ldg-entry-icon">${catIcon}</span>` : ''}
+            <span class="ldg-entry-amt">₩${(e.amount||0).toLocaleString()}</span>
+            <span class="ldg-pay-badge">${payBadge}</span>
+            ${e.note ? `<span class="ldg-entry-note">${escapeHtml(e.note)}</span>` : ''}
+          </div>`;
+        });
+      } else {
+        html += `<div class="ldg-slot-plus">+</div>`;
+      }
+      html += `</div>`;
+    });
+  }
+
+  // 합계 행
+  html += `<div class="ldg-total-label">합계</div>`;
+  types.forEach(t => {
+    const lt = LEDGER_TYPES[t];
+    html += `<div class="ldg-total-cell" style="color:${lt.color}">${fmtMoney(totals[t])}</div>`;
+  });
+  html += `</div>`;
+
+  wrap.innerHTML = html;
+
+  wrap.querySelectorAll('.ldg-slot').forEach(slot => {
+    slot.addEventListener('click', ev => {
+      const entryEl = ev.target.closest('.ldg-entry');
+      const hour = parseInt(slot.dataset.hour);
+      const type = slot.dataset.type;
+      if (entryEl) {
+        const entry = list.find(x => x.id === entryEl.dataset.id);
+        if (entry) openLedgerModal(entry, hour, type);
+      } else {
+        openLedgerModal(null, hour, type);
+      }
+    });
+  });
+}
+
+function _renderLedgerMonthly() {
+  const el = document.getElementById('ledgerMonthlySummary');
+  if (!el) return;
+
+  const year  = _ledgerDate.getFullYear();
+  const month = _ledgerDate.getMonth();
+  const all   = getLedger();
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+
+  const totals = { revenue: 0, income: 0, expense: 0 };
+  const payTotals = { cash: 0, card: 0 };
+  const catTotals = {};
+  const dayData = [];
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const key  = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const list = all[key] || [];
+    const dt = { revenue: 0, income: 0, expense: 0 };
+    list.forEach(e => {
+      const t = e.type || 'expense';
+      dt[t]      = (dt[t]     || 0) + (e.amount || 0);
+      totals[t]  = (totals[t] || 0) + (e.amount || 0);
+      if (t === 'expense') {
+        catTotals[e.category||'other'] = (catTotals[e.category||'other'] || 0) + (e.amount||0);
+        const pm = e.payMethod || 'cash';
+        payTotals[pm] = (payTotals[pm] || 0) + (e.amount || 0);
+      }
+    });
+    if (list.length > 0) dayData.push({ d, list, dt });
+  }
+
+  const profit = totals.revenue + totals.income - totals.expense;
+  const catSorted = Object.entries(catTotals).sort((a,b) => b[1]-a[1]);
+  const maxCat = catSorted[0]?.[1] || 1;
+
+  el.innerHTML = `
+    <div class="ledger-month-nav" style="margin-top:24px">
+      <span class="ledger-month-label">${year}년 ${month+1}월 요약</span>
+    </div>
+
+    <div class="ldg-summary-cards">
+      ${['revenue','income','expense'].map(t => {
+        const lt = LEDGER_TYPES[t];
+        return `<div class="ldg-sc ldg-sc-${t}">
+          <div class="ldg-sc-label">${lt.icon} ${lt.label}</div>
+          <div class="ldg-sc-amt">${fmtMoney(totals[t])}</div>
+        </div>`;
+      }).join('')}
+      <div class="ldg-sc ldg-sc-profit">
+        <div class="ldg-sc-label">💵 순이익</div>
+        <div class="ldg-sc-amt ${profit >= 0 ? 'ldg-positive' : 'ldg-negative'}">${fmtMoney(profit)}</div>
+      </div>
+    </div>
+
+    <div class="ledger-section-title">지출 결제수단</div>
+    <div class="ldg-pay-summary">
+      <div class="ldg-pay-item">
+        <span class="ldg-pay-icon">💵</span>
+        <span class="ldg-pay-label">현금</span>
+        <span class="ldg-pay-amt">${fmtMoney(payTotals.cash)}</span>
+      </div>
+      <div class="ldg-pay-item">
+        <span class="ldg-pay-icon">💳</span>
+        <span class="ldg-pay-label">카드</span>
+        <span class="ldg-pay-amt">${fmtMoney(payTotals.card)}</span>
+      </div>
+    </div>
+
+    <div class="ledger-section-title">지출 카테고리</div>
+    <div class="ledger-cat-list">
+      ${catSorted.length === 0
+        ? '<div class="expense-empty">지출 내역이 없습니다</div>'
+        : catSorted.map(([key, total]) => {
+            const cat = EXPENSE_CATS[key] || EXPENSE_CATS.other;
+            const pct = Math.round((total / maxCat) * 100);
+            return `<div class="ledger-cat-item">
+              <div class="ledger-cat-icon">${cat.icon}</div>
+              <div class="ledger-cat-name">${cat.label}</div>
+              <div class="ledger-cat-bar-wrap"><div class="ledger-cat-bar" style="width:${pct}%;background:${cat.color}"></div></div>
+              <div class="ledger-cat-amount">${fmtMoney(total)}</div>
+            </div>`;
+          }).join('')
+      }
+    </div>
+
+    <div class="ledger-section-title">일별 내역</div>
+    <div class="ledger-day-list">
+      ${dayData.length === 0
+        ? '<div class="expense-empty">내역이 없습니다</div>'
+        : dayData.slice().reverse().map(({ d, list, dt }) => `
+          <div class="ledger-day-row">
+            <div>
+              <div class="ledger-day-date">${month+1}월 ${d}일 (${DOW_KO[new Date(year,month,d).getDay()]})</div>
+              <div class="ledger-day-sub">${list.length}건</div>
+            </div>
+            <div class="ldg-day-amounts">
+              ${dt.revenue > 0 ? `<span class="ldg-day-revenue">+${fmtMoney(dt.revenue)}</span>` : ''}
+              ${dt.income  > 0 ? `<span class="ldg-day-income">+${fmtMoney(dt.income)}</span>`  : ''}
+              ${dt.expense > 0 ? `<span class="ldg-day-expense">-${fmtMoney(dt.expense)}</span>` : ''}
+            </div>
+          </div>`).join('')
+      }
+    </div>`;
+}
+
+// ── 가계부 모달 이벤트 초기화 (initUI에서 호출) ──
+function initExpenseModal() {
+  document.getElementById('closeExpenseModal').addEventListener('click', closeExpenseModal);
+  document.getElementById('saveExpenseBtn').addEventListener('click', saveExpense);
+  document.getElementById('deleteExpenseBtn').addEventListener('click', deleteExpense);
+  document.getElementById('expenseModal').addEventListener('click', e => {
+    if (e.target === document.getElementById('expenseModal')) closeExpenseModal();
+  });
+  document.getElementById('ledgerTypeTabs').addEventListener('click', e => {
+    const btn = e.target.closest('.ledger-type-tab');
+    if (!btn) return;
+    _selectedLedgerType = btn.dataset.type;
+    document.querySelectorAll('.ledger-type-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const lt = LEDGER_TYPES[_selectedLedgerType];
+    const hStr = String(_ledgerModalHour).padStart(2,'0');
+    document.getElementById('expenseModalTitle').textContent =
+      `${lt.icon} ${lt.label} ${_editingLedgerId ? '수정' : '추가'} (${hStr}:00)`;
+    const catSec = document.getElementById('expenseCatSection');
+    catSec.style.display = _selectedLedgerType === 'expense' ? '' : 'none';
+    if (_selectedLedgerType === 'expense') _renderExpenseCatChips();
+  });
+  document.getElementById('payMethodTabs').addEventListener('click', e => {
+    const btn = e.target.closest('.pay-method-tab');
+    if (!btn) return;
+    _selectedPayMethod = btn.dataset.pay;
+    document.querySelectorAll('.pay-method-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+  document.getElementById('expenseAmount').addEventListener('keydown', e => { if (e.key === 'Enter') saveExpense(); });
+  document.getElementById('expenseNote').addEventListener('keydown', e => { if (e.key === 'Enter') saveExpense(); });
+}
